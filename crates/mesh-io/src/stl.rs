@@ -176,7 +176,7 @@ fn write_binary(mesh: &Mesh, out: &mut impl Write) -> io::Result<()> {
 
     let mut record = [0u8; BINARY_TRIANGLE_LEN];
     for i in 0..mesh.triangle_count() {
-        let normal = mesh.face_normal(i);
+        let normal = facet_normal(mesh.triangle(i));
         let [a, b, c] = mesh.triangle(i);
         for (slot, v) in [normal, a, b, c].iter().enumerate() {
             for (axis, value) in v.to_array().iter().enumerate() {
@@ -187,6 +187,15 @@ fn write_binary(mesh: &Mesh, out: &mut impl Write) -> io::Result<()> {
         out.write_all(&record)?;
     }
     Ok(())
+}
+
+/// Facet normal computed like OpenSCAD's STL export, so the digits match:
+/// `(b - a) × (c - a)` divided by its length (multiplying by the
+/// reciprocal differs in the last bit). Zero for a degenerate triangle.
+fn facet_normal([a, b, c]: [DVec3; 3]) -> DVec3 {
+    let n = (b - a).cross(c - a);
+    let len = n.length();
+    if len > 0.0 { n / len } else { DVec3::ZERO }
 }
 
 /// ASCII layout and number format of OpenSCAD's ASCII STL export
@@ -202,7 +211,11 @@ fn write_ascii(mesh: &Mesh, out: &mut impl Write) -> io::Result<()> {
     };
     writeln!(out, "solid OpenSCAD_Model")?;
     for i in 0..mesh.triangle_count() {
-        writeln!(out, "  facet normal {}", xyz(mesh.face_normal(i)))?;
+        writeln!(
+            out,
+            "  facet normal {}",
+            xyz(facet_normal(mesh.triangle(i)))
+        )?;
         writeln!(out, "    outer loop")?;
         for v in mesh.triangle(i) {
             writeln!(out, "      vertex {}", xyz(v))?;
@@ -280,6 +293,30 @@ mod tests {
         assert_eq!(lines[3], "      vertex 0 0 0");
         assert_eq!(lines[4], "      vertex 0 10 0");
         assert_eq!(lines.last(), Some(&"endsolid OpenSCAD_Model"));
+    }
+
+    #[test]
+    fn ascii_facet_is_byte_identical_to_openscad() {
+        // A facet of `translate([-5,-5,-5]) rotate([10,20,30]) cube(1);`
+        // exported by OpenSCAD Nightly 2026.10.22 (--export-format asciistl).
+        let expected = "solid OpenSCAD_Model
+  facet normal -0.8137976813493738 -0.46984631039295427 0.34202014332566844
+    outer loop
+      vertex -4.621477693630208 -4.981971688763703 -4.074583421601677
+      vertex -5.440969610529883 -4.117435880740614 -4.836824088833465
+      vertex -5 -5 -5
+    endloop
+  endfacet
+endsolid OpenSCAD_Model
+";
+        let soup = read_stl_soup(expected.as_bytes()).unwrap();
+        let mesh = Mesh {
+            vertices: soup[0].to_vec(),
+            triangles: vec![[0, 1, 2]],
+        };
+        let mut bytes = Vec::new();
+        write_stl(&mesh, &mut bytes, StlFormat::Ascii).unwrap();
+        assert_eq!(String::from_utf8(bytes).unwrap(), expected);
     }
 
     #[test]
