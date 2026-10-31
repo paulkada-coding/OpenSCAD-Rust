@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "exit_code": 0,
+  "top_level": null,
+  "log": "",
+  "geometry": {
+    "triangles": 308,
+    "vertices": 154,
+    "volume": 37.05968232965021,
+    "area": 159.02554408728108,
+    "bbox_min": [-6.773560002446175, -4.973119996488094, 0],
+    "bbox_max": [6.078759998083115, 4.976319998502731, 1],
+    "manifold": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "degenerate_triangles": 0,
+    "components": 2,
+    "euler": 0,
+    "genus": 1,
+    "vertex_hash": "fnv1a64:4c981e39a68c5eda",
+    "triangle_hash": "fnv1a64:bc39bfd40112f6af"
+  }
+}

@@ -7,6 +7,8 @@ use std::path::Path;
 use geometry::Mesh;
 use geometry::glam::DVec3;
 
+use crate::number::format_shortest;
+
 const HEADER_LEN: usize = 80;
 const BINARY_PREFIX_LEN: usize = HEADER_LEN + 4;
 const BINARY_TRIANGLE_LEN: usize = 50;
@@ -36,15 +38,22 @@ pub fn read_stl_file(path: impl AsRef<Path>) -> Result<Mesh, StlError> {
 
 /// Parses an STL file, detecting binary or ASCII encoding.
 pub fn read_stl(bytes: &[u8]) -> Result<Mesh, StlError> {
-    let mesh = if is_binary(bytes) {
-        read_binary(bytes)?
-    } else {
-        read_ascii(bytes)?
-    };
+    let mesh = Mesh::from_triangle_soup(read_stl_soup(bytes)?);
     if mesh.is_empty() {
         return Err(StlError::Empty);
     }
     Ok(mesh)
+}
+
+/// Parses an STL file (binary or ASCII) into its raw triangles, in file
+/// order, without merging vertices or dropping degenerate triangles.
+/// An STL without triangles gives an empty list.
+pub fn read_stl_soup(bytes: &[u8]) -> Result<Vec<[DVec3; 3]>, StlError> {
+    if is_binary(bytes) {
+        read_binary(bytes)
+    } else {
+        read_ascii(bytes)
+    }
 }
 
 /// Many exporters write binary files whose 80-byte header starts with
@@ -65,7 +74,7 @@ fn binary_triangle_count(bytes: &[u8]) -> usize {
     u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize
 }
 
-fn read_binary(bytes: &[u8]) -> Result<Mesh, StlError> {
+fn read_binary(bytes: &[u8]) -> Result<Vec<[DVec3; 3]>, StlError> {
     if bytes.len() < BINARY_PREFIX_LEN {
         return Err(StlError::Truncated {
             expected: BINARY_PREFIX_LEN,
@@ -96,10 +105,10 @@ fn read_binary(bytes: &[u8]) -> Result<Mesh, StlError> {
         let base = BINARY_PREFIX_LEN + i * BINARY_TRIANGLE_LEN + 12;
         [read_vec(base), read_vec(base + 12), read_vec(base + 24)]
     });
-    Ok(Mesh::from_triangle_soup(soup))
+    Ok(soup.collect())
 }
 
-fn read_ascii(bytes: &[u8]) -> Result<Mesh, StlError> {
+fn read_ascii(bytes: &[u8]) -> Result<Vec<[DVec3; 3]>, StlError> {
     let text = String::from_utf8_lossy(bytes);
     let mut soup = Vec::new();
     let mut pending: Vec<DVec3> = Vec::with_capacity(3);
@@ -133,7 +142,7 @@ fn read_ascii(bytes: &[u8]) -> Result<Mesh, StlError> {
             _ => {}
         }
     }
-    Ok(Mesh::from_triangle_soup(soup))
+    Ok(soup)
 }
 
 pub fn write_stl_file(
@@ -156,7 +165,8 @@ pub fn write_stl(mesh: &Mesh, out: &mut impl Write, format: StlFormat) -> io::Re
 
 fn write_binary(mesh: &Mesh, out: &mut impl Write) -> io::Result<()> {
     let mut header = [0u8; HEADER_LEN];
-    let tag = b"binary STL";
+    // Same header as OpenSCAD's binary STL export (zero padded).
+    let tag = b"OpenSCAD Model\n";
     header[..tag.len()].copy_from_slice(tag);
     out.write_all(&header)?;
 
@@ -166,7 +176,7 @@ fn write_binary(mesh: &Mesh, out: &mut impl Write) -> io::Result<()> {
 
     let mut record = [0u8; BINARY_TRIANGLE_LEN];
     for i in 0..mesh.triangle_count() {
-        let normal = mesh.face_normal(i);
+        let normal = facet_normal(mesh.triangle(i));
         let [a, b, c] = mesh.triangle(i);
         for (slot, v) in [normal, a, b, c].iter().enumerate() {
             for (axis, value) in v.to_array().iter().enumerate() {
@@ -179,19 +189,41 @@ fn write_binary(mesh: &Mesh, out: &mut impl Write) -> io::Result<()> {
     Ok(())
 }
 
+/// Facet normal computed like OpenSCAD's STL export, so the digits match:
+/// `(b - a) × (c - a)` divided by its length (multiplying by the
+/// reciprocal differs in the last bit). Zero for a degenerate triangle.
+fn facet_normal([a, b, c]: [DVec3; 3]) -> DVec3 {
+    let n = (b - a).cross(c - a);
+    let len = n.length();
+    if len > 0.0 { n / len } else { DVec3::ZERO }
+}
+
+/// ASCII layout and number format of OpenSCAD's ASCII STL export
+/// (`solid OpenSCAD_Model`, shortest round-trip numbers, LF line endings).
 fn write_ascii(mesh: &Mesh, out: &mut impl Write) -> io::Result<()> {
-    writeln!(out, "solid model")?;
+    let xyz = |v: DVec3| {
+        format!(
+            "{} {} {}",
+            format_shortest(v.x),
+            format_shortest(v.y),
+            format_shortest(v.z)
+        )
+    };
+    writeln!(out, "solid OpenSCAD_Model")?;
     for i in 0..mesh.triangle_count() {
-        let n = mesh.face_normal(i);
-        writeln!(out, "  facet normal {:e} {:e} {:e}", n.x, n.y, n.z)?;
+        writeln!(
+            out,
+            "  facet normal {}",
+            xyz(facet_normal(mesh.triangle(i)))
+        )?;
         writeln!(out, "    outer loop")?;
         for v in mesh.triangle(i) {
-            writeln!(out, "      vertex {:e} {:e} {:e}", v.x, v.y, v.z)?;
+            writeln!(out, "      vertex {}", xyz(v))?;
         }
         writeln!(out, "    endloop")?;
         writeln!(out, "  endfacet")?;
     }
-    writeln!(out, "endsolid model")
+    writeln!(out, "endsolid OpenSCAD_Model")
 }
 
 #[cfg(test)]
@@ -247,6 +279,60 @@ mod tests {
         write_stl(&tetrahedron(), &mut bytes, StlFormat::Binary).unwrap();
         bytes.truncate(bytes.len() - 10);
         assert!(matches!(read_stl(&bytes), Err(StlError::Truncated { .. })));
+    }
+
+    #[test]
+    fn ascii_uses_openscad_layout() {
+        let mut bytes = Vec::new();
+        write_stl(&tetrahedron(), &mut bytes, StlFormat::Ascii).unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "solid OpenSCAD_Model");
+        assert_eq!(lines[1], "  facet normal 0 0 -1");
+        assert_eq!(lines[2], "    outer loop");
+        assert_eq!(lines[3], "      vertex 0 0 0");
+        assert_eq!(lines[4], "      vertex 0 10 0");
+        assert_eq!(lines.last(), Some(&"endsolid OpenSCAD_Model"));
+    }
+
+    #[test]
+    fn ascii_facet_is_byte_identical_to_openscad() {
+        // A facet of `translate([-5,-5,-5]) rotate([10,20,30]) cube(1);`
+        // exported by OpenSCAD Nightly 2026.10.22 (--export-format asciistl).
+        let expected = "solid OpenSCAD_Model
+  facet normal -0.8137976813493738 -0.46984631039295427 0.34202014332566844
+    outer loop
+      vertex -4.621477693630208 -4.981971688763703 -4.074583421601677
+      vertex -5.440969610529883 -4.117435880740614 -4.836824088833465
+      vertex -5 -5 -5
+    endloop
+  endfacet
+endsolid OpenSCAD_Model
+";
+        let soup = read_stl_soup(expected.as_bytes()).unwrap();
+        let mesh = Mesh {
+            vertices: soup[0].to_vec(),
+            triangles: vec![[0, 1, 2]],
+        };
+        let mut bytes = Vec::new();
+        write_stl(&mesh, &mut bytes, StlFormat::Ascii).unwrap();
+        assert_eq!(String::from_utf8(bytes).unwrap(), expected);
+    }
+
+    #[test]
+    fn binary_header_matches_openscad() {
+        let mut bytes = Vec::new();
+        write_stl(&tetrahedron(), &mut bytes, StlFormat::Binary).unwrap();
+        assert!(bytes.starts_with(b"OpenSCAD Model\n\0"));
+        assert_eq!(bytes.len(), BINARY_PREFIX_LEN + 4 * BINARY_TRIANGLE_LEN);
+    }
+
+    #[test]
+    fn soup_keeps_degenerate_triangles() {
+        let text = "solid x\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 0 0 0\nvertex 1 0 0\nendloop\nendfacet\nendsolid x\n";
+        assert_eq!(read_stl_soup(text.as_bytes()).unwrap().len(), 1);
+        assert!(matches!(read_stl(text.as_bytes()), Err(StlError::Empty)));
+        assert!(read_stl_soup(b"solid x\nendsolid x\n").unwrap().is_empty());
     }
 
     #[test]

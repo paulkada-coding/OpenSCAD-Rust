@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "exit_code": 0,
+  "top_level": null,
+  "log": "ECHO: \"porta carte v2.7\"\nECHO: \"scatola   106 x 70 x 60 mm, carte orizzontale, 1 file\"\nECHO: \"  10 denti: 9 posizioni per fila, 64 mm per le carte\"\nECHO: \"coperchio 110.5 x 74.5 x 40 mm, calza sulla base per 10 mm e sporge di 2.25 per lato (gioco 0.25)\"\nECHO: \"chiuso    90 mm di altezza\"\nECHO: \"tenuta    2 tratti da 60 mm sui lati col pettine: gioco a fine corsa -0.1 per lato (negativo = preme), nominale 0.25\"\nECHO: \"CONTROLLO orizzontale luce 94 cave z 20-50 cima linguetta z 86 piedino true rampa 45 v2.7\"\nECHO: \"rampe     45 gradi, alte 3 mm in fondo a ogni cava\"\n",
+  "geometry": {
+    "triangles": 2252,
+    "vertices": 1128,
+    "volume": 59703.69200308647,
+    "area": 43224.07559105218,
+    "bbox_min": [0, 0, 0],
+    "bbox_max": [110.5, 74.5, 40],
+    "manifold": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "degenerate_triangles": 0,
+    "components": 1,
+    "euler": 2,
+    "genus": 0,
+    "vertex_hash": "fnv1a64:b447999d9551c939",
+    "triangle_hash": "fnv1a64:1f35c76f67db19d6"
+  }
+}

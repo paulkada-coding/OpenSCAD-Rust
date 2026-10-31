@@ -3,8 +3,13 @@
 //! output recorded from OpenSCAD.
 //!
 //! See `tests/compat/README.md` for the corpus layout and normalization rules.
+//! With `--geometry` it runs the geometry corpus in `tests/compat/geometry`
+//! instead (see the `geometry` module and `tests/compat/geometry/README.md`).
 
 mod diff;
+mod geometry;
+mod json;
+mod metrics;
 mod normalize;
 
 use std::io::Read;
@@ -29,17 +34,31 @@ OPTIONS:
     --engine <PATH>       engine binary (default: <workspace>/target/debug/scadr[.exe])
     --openscad <PATH>     OpenSCAD binary used by --update-expected
                           (default: C:\\Program Files\\OpenSCAD (Nightly)\\openscad.exe)
-    --update-expected     regenerate tests/compat/expected by running OpenSCAD
+    --update-expected     regenerate the expected files by running OpenSCAD
     --filter <SUBSTR>     only run cases whose name contains SUBSTR (repeatable: any match)
-    -v, --verbose         print unified diffs for failing cases
+    -v, --verbose         print unified diffs (geometry: metric tables) for failing cases
     -j, --jobs <N>        parallel jobs (default: number of CPUs)
     --timeout <SECS>      per-case timeout in seconds (default: 30)
-    --cases <DIR>         cases directory (default: <workspace>/tests/compat/cases)
-    --expected <DIR>      expected directory (default: <workspace>/tests/compat/expected)
+    --cases <DIR>         cases directory (default: <workspace>/tests/compat/cases,
+                          with --geometry <workspace>/tests/compat/geometry/cases)
+    --expected <DIR>      expected directory (default: <workspace>/tests/compat/expected,
+                          with --geometry <workspace>/tests/compat/geometry/expected)
     --out-dir <DIR>       where raw outputs are written (default: <workspace>/target/compat-out)
     -h, --help            print this help
 
-Exit code: 0 if every case passes (or every update succeeds), 1 otherwise, 2 on usage errors.
+GEOMETRY MODE:
+    --geometry            render each case to ASCII STL (-o <name>.stl --export-format asciistl)
+                          and compare mesh metrics with expected/<name>.json:
+                          EXACT (same vertices and triangles), EQUIVALENT (metrics within
+                          tolerance, vertices differ) or FAIL
+    --tol-volume <REL>    relative volume tolerance (default: 1e-6)
+    --tol-area <REL>      relative surface area tolerance (default: 1e-6)
+    --tol-bbox <ABS>      absolute bounding box tolerance (default: 1e-6)
+    --ignore-log          do not compare the messages (stderr)
+    --strict              count EQUIVALENT as a failure in the exit code
+
+Exit code: 0 if every case passes (geometry: EXACT or EQUIVALENT; or every update
+succeeds), 1 otherwise, 2 on usage errors.
 ";
 
 struct Options {
@@ -53,6 +72,10 @@ struct Options {
     cases_dir: PathBuf,
     expected_dir: PathBuf,
     out_dir: PathBuf,
+    geometry: bool,
+    tolerances: geometry::Tolerances,
+    ignore_log: bool,
+    strict: bool,
 }
 
 fn workspace_root() -> PathBuf {
@@ -65,9 +88,9 @@ fn workspace_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn parse_args() -> Result<Options, String> {
+fn default_options() -> Options {
     let root = workspace_root();
-    let mut o = Options {
+    Options {
         engine: root
             .join("target")
             .join("debug")
@@ -81,7 +104,31 @@ fn parse_args() -> Result<Options, String> {
         cases_dir: root.join("tests").join("compat").join("cases"),
         expected_dir: root.join("tests").join("compat").join("expected"),
         out_dir: root.join("target").join("compat-out"),
-    };
+        geometry: false,
+        tolerances: geometry::Tolerances::default(),
+        ignore_log: false,
+        strict: false,
+    }
+}
+
+#[cfg(test)]
+fn test_options() -> Options {
+    default_options()
+}
+
+fn parse_tolerance(text: &str, name: &str) -> Result<f64, String> {
+    let v: f64 = text.parse().map_err(|e| format!("invalid {name}: {e}"))?;
+    if v >= 0.0 && v.is_finite() {
+        Ok(v)
+    } else {
+        Err(format!("{name} must be a non-negative number"))
+    }
+}
+
+fn parse_args() -> Result<Options, String> {
+    let root = workspace_root();
+    let mut o = default_options();
+    let (mut cases_dir, mut expected_dir) = (None, None);
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         let mut value = |name: &str| {
@@ -89,6 +136,14 @@ fn parse_args() -> Result<Options, String> {
                 .ok_or_else(|| format!("missing value for {name}"))
         };
         match a.as_str() {
+            "--geometry" => o.geometry = true,
+            "--ignore-log" => o.ignore_log = true,
+            "--strict" => o.strict = true,
+            "--tol-volume" => {
+                o.tolerances.volume_rel = parse_tolerance(&value(&a)?, "--tol-volume")?;
+            }
+            "--tol-area" => o.tolerances.area_rel = parse_tolerance(&value(&a)?, "--tol-area")?,
+            "--tol-bbox" => o.tolerances.bbox_abs = parse_tolerance(&value(&a)?, "--tol-bbox")?,
             "--engine" => o.engine = PathBuf::from(value("--engine")?),
             "--openscad" => o.openscad = PathBuf::from(value("--openscad")?),
             "--update-expected" => o.update = true,
@@ -109,8 +164,8 @@ fn parse_args() -> Result<Options, String> {
                 }
                 o.timeout = Duration::from_secs_f64(secs);
             }
-            "--cases" => o.cases_dir = PathBuf::from(value("--cases")?),
-            "--expected" => o.expected_dir = PathBuf::from(value("--expected")?),
+            "--cases" => cases_dir = Some(PathBuf::from(value("--cases")?)),
+            "--expected" => expected_dir = Some(PathBuf::from(value("--expected")?)),
             "--out-dir" => o.out_dir = PathBuf::from(value("--out-dir")?),
             "-h" | "--help" => {
                 print!("{USAGE}");
@@ -119,6 +174,13 @@ fn parse_args() -> Result<Options, String> {
             other => return Err(format!("unknown argument: {other}")),
         }
     }
+    let corpus = if o.geometry {
+        root.join("tests").join("compat").join("geometry")
+    } else {
+        root.join("tests").join("compat")
+    };
+    o.cases_dir = cases_dir.unwrap_or_else(|| corpus.join("cases"));
+    o.expected_dir = expected_dir.unwrap_or_else(|| corpus.join("expected"));
     for p in [&mut o.cases_dir, &mut o.expected_dir, &mut o.out_dir] {
         if let Ok(abs) = std::path::absolute(&*p) {
             *p = abs;
@@ -177,29 +239,32 @@ fn parse_directive(src: &str) -> Vec<String> {
 /// Raw result of running one binary on one case.
 struct RawRun {
     stderr: Vec<u8>,
-    /// Contents of the exported CSG file, `None` if no file was written.
-    csg: Option<Vec<u8>>,
+    /// Contents of the exported file, `None` if no file was written.
+    output: Option<Vec<u8>>,
     exit_code: Option<i32>,
     timed_out: bool,
 }
 
-/// Runs `<exe> -o <out_dir>/<name>.csg [extra args] <name>.scad` in the
+/// Runs `<exe> -o <out_path> [export args] [case args] <name>.scad` in the
 /// case directory, with a timeout.
 fn run_binary(
     exe: &Path,
     case: &Case,
-    out_dir: &Path,
+    out_path: &Path,
+    export_args: &[&str],
     timeout: Duration,
 ) -> Result<RawRun, String> {
-    std::fs::create_dir_all(out_dir)
-        .map_err(|e| format!("cannot create {}: {e}", out_dir.display()))?;
-    let csg_path = out_dir.join(format!("{}.csg", case.name));
-    let _ = std::fs::remove_file(&csg_path);
+    if let Some(out_dir) = out_path.parent() {
+        std::fs::create_dir_all(out_dir)
+            .map_err(|e| format!("cannot create {}: {e}", out_dir.display()))?;
+    }
+    let _ = std::fs::remove_file(out_path);
     let case_dir = case.path.parent().unwrap_or(Path::new("."));
     let file_name = case.path.file_name().unwrap_or_default();
     let mut child = Command::new(exe)
         .arg("-o")
-        .arg(&csg_path)
+        .arg(out_path)
+        .args(export_args)
         .args(&case.extra_args)
         .arg(file_name)
         .current_dir(case_dir)
@@ -236,10 +301,10 @@ fn run_binary(
     };
     let _ = out_thread.join();
     let stderr = err_thread.join().unwrap_or_default();
-    let csg = std::fs::read(&csg_path).ok();
+    let output = std::fs::read(out_path).ok();
     Ok(RawRun {
         stderr,
-        csg,
+        output,
         exit_code: status.and_then(|s| s.code()),
         timed_out,
     })
@@ -298,7 +363,8 @@ fn check_case(o: &Options, case: &Case) -> Outcome {
     };
     let exp_csg = read_expected(&exp_csg_path);
     let case_dir = case.path.parent().unwrap_or(Path::new("."));
-    let run = match run_binary(&o.engine, case, &o.out_dir.join("engine"), o.timeout) {
+    let csg_path = o.out_dir.join("engine").join(format!("{}.csg", case.name));
+    let run = match run_binary(&o.engine, case, &csg_path, &[], o.timeout) {
         Ok(r) => r,
         Err(e) => {
             outcome.status = Status::Error;
@@ -315,7 +381,7 @@ fn check_case(o: &Options, case: &Case) -> Outcome {
     }
     let act_log = normalize::normalize_log(&run.stderr, case_dir);
     let act_csg = run
-        .csg
+        .output
         .as_deref()
         .map(|b| normalize::normalize_csg(b, case_dir));
     // Save the normalized actual output next to the raw output for inspection.
@@ -365,7 +431,11 @@ fn update_case(o: &Options, case: &Case) -> Outcome {
         elapsed: Duration::ZERO,
     };
     let case_dir = case.path.parent().unwrap_or(Path::new("."));
-    let run = match run_binary(&o.openscad, case, &o.out_dir.join("openscad"), o.timeout) {
+    let csg_path = o
+        .out_dir
+        .join("openscad")
+        .join(format!("{}.csg", case.name));
+    let run = match run_binary(&o.openscad, case, &csg_path, &[], o.timeout) {
         Ok(r) => r,
         Err(e) => {
             outcome.status = Status::Error;
@@ -381,7 +451,7 @@ fn update_case(o: &Options, case: &Case) -> Outcome {
     }
     let log = normalize::normalize_log(&run.stderr, case_dir);
     let csg = run
-        .csg
+        .output
         .as_deref()
         .map(|b| normalize::normalize_csg(b, case_dir));
     let log_path = o.expected_dir.join(format!("{}.log", case.name));
@@ -431,10 +501,16 @@ fn write_if_changed(path: &Path, content: &str) -> Result<Option<&'static str>, 
     Ok(Some(if old.is_some() { "updated" } else { "new" }))
 }
 
-fn run_parallel(o: &Arc<Options>, cases: Vec<Case>) -> Vec<Outcome> {
+/// Runs `job` on every case with `o.jobs` worker threads; results come
+/// back in case order.
+fn run_parallel<T: Send + 'static>(
+    o: &Arc<Options>,
+    cases: Vec<Case>,
+    job: fn(&Options, &Case) -> T,
+) -> Vec<T> {
     let cases = Arc::new(cases);
     let next = Arc::new(AtomicUsize::new(0));
-    let results: Arc<Mutex<Vec<Outcome>>> = Arc::new(Mutex::new(Vec::new()));
+    let results: Arc<Mutex<Vec<(usize, T)>>> = Arc::new(Mutex::new(Vec::new()));
     let workers = o.jobs.min(cases.len()).max(1);
     let handles: Vec<_> = (0..workers)
         .map(|_| {
@@ -448,13 +524,9 @@ fn run_parallel(o: &Arc<Options>, cases: Vec<Case>) -> Vec<Outcome> {
                 loop {
                     let i = next.fetch_add(1, Ordering::SeqCst);
                     let Some(case) = cases.get(i) else { break };
-                    let outcome = if o.update {
-                        update_case(&o, case)
-                    } else {
-                        check_case(&o, case)
-                    };
+                    let outcome = job(&o, case);
                     if let Ok(mut r) = results.lock() {
-                        r.push(outcome);
+                        r.push((i, outcome));
                     }
                 }
             })
@@ -470,8 +542,24 @@ fn run_parallel(o: &Arc<Options>, cases: Vec<Case>) -> Vec<Outcome> {
             .map(|mut v| std::mem::take(&mut *v))
             .unwrap_or_default(),
     };
-    results.sort_by(|a, b| a.name.cmp(&b.name));
-    results
+    results.sort_by_key(|(i, _)| *i);
+    results.into_iter().map(|(_, r)| r).collect()
+}
+
+fn text_job(o: &Options, case: &Case) -> Outcome {
+    if o.update {
+        update_case(o, case)
+    } else {
+        check_case(o, case)
+    }
+}
+
+fn geometry_job(o: &Options, case: &Case) -> geometry::GeoOutcome {
+    if o.update {
+        geometry::update_case(o, case)
+    } else {
+        geometry::check_case(o, case)
+    }
 }
 
 fn print_report(o: &Options, results: &[Outcome]) -> bool {
@@ -576,6 +664,14 @@ fn main() -> ExitCode {
             o.engine.display(),
             cases.len()
         );
+        if o.geometry {
+            println!(
+                "Total: {} cases, 0 exact, 0 equivalent, 0 failed, 0 errors, 0 timeouts, {} skipped",
+                cases.len(),
+                cases.len()
+            );
+            return ExitCode::from(1);
+        }
         let results: Vec<Outcome> = cases
             .iter()
             .map(|c| Outcome {
@@ -592,7 +688,15 @@ fn main() -> ExitCode {
         println!("Running {} cases with {}", cases.len(), o.engine.display());
     }
     let o = Arc::new(o);
-    let results = run_parallel(&o, cases);
+    if o.geometry {
+        let results = run_parallel(&o, cases, geometry_job);
+        return if geometry::print_report(&o, &results) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        };
+    }
+    let results = run_parallel(&o, cases, text_job);
     let ok = if o.update {
         print_report(&o, &results);
         results.iter().all(|r| r.status == Status::Pass)

@@ -756,6 +756,10 @@ dependencies = [
 [[package]]
 name = "compat-runner"
 version = "0.1.0"
+dependencies = [
+ "geometry",
+ "mesh-io",
+]
 
 [[package]]
 name = "concurrent-queue"
@@ -3318,6 +3322,8 @@ name = "scadr"
 version = "0.1.0"
 dependencies = [
  "geometry",
+ "mesh-io",
+ "mesher",
  "scad-eval",
 ]
 
