@@ -11,14 +11,56 @@ use crate::message::EvalResult;
 use crate::value::{Arguments, Value};
 
 const NAMES: &[&str] = &[
-    "cube", "sphere", "cylinder", "polyhedron", "square", "circle", "polygon", "translate",
-    "rotate", "scale", "mirror", "multmatrix", "color", "resize", "offset", "linear_extrude",
-    "rotate_extrude", "projection", "union", "difference", "intersection", "hull", "minkowski",
-    "render", "group", "text", "import", "surface", "fill",
+    "cube",
+    "sphere",
+    "cylinder",
+    "polyhedron",
+    "square",
+    "circle",
+    "polygon",
+    "translate",
+    "rotate",
+    "scale",
+    "mirror",
+    "multmatrix",
+    "color",
+    "resize",
+    "offset",
+    "linear_extrude",
+    "rotate_extrude",
+    "projection",
+    "union",
+    "difference",
+    "intersection",
+    "hull",
+    "minkowski",
+    "render",
+    "group",
+    "text",
+    "import",
+    "surface",
+    "fill",
 ];
 
 pub fn exists(name: &str) -> bool {
     NAMES.contains(&name)
+}
+
+/// Leaf geometry builtins do not accept child modules.
+pub fn accepts_children(name: &str) -> bool {
+    !matches!(
+        name,
+        "cube"
+            | "sphere"
+            | "cylinder"
+            | "polyhedron"
+            | "square"
+            | "circle"
+            | "polygon"
+            | "text"
+            | "import"
+            | "surface"
+    )
 }
 
 /// Positional parameter order and extra named-only parameters.
@@ -74,7 +116,9 @@ impl<'a> Params<'a> {
     }
 
     fn number(&self, name: &str) -> Option<f64> {
-        self.get(name).and_then(Value::as_number).filter(|n| n.is_finite())
+        self.get(name)
+            .and_then(Value::as_number)
+            .filter(|n| n.is_finite())
     }
 
     fn bool(&self, name: &str, default: bool) -> bool {
@@ -84,9 +128,8 @@ impl<'a> Params<'a> {
 
 /// `$fn`, `$fa`, `$fs` in effect, clamped like OpenSCAD.
 fn tessellation(ev: &mut Evaluator, span: Span) -> Segments {
-    let read = |ev: &Evaluator, name: &str, default: f64| {
-        ev.special(name).as_number().unwrap_or(default)
-    };
+    let read =
+        |ev: &Evaluator, name: &str, default: f64| ev.special(name).as_number().unwrap_or(default);
     let mut segments = Segments {
         fn_: read(ev, "$fn", 0.0),
         fa: read(ev, "$fa", 12.0),
@@ -118,7 +161,10 @@ fn check_arguments(ev: &mut Evaluator, name: &str, args: &Arguments, span: Span)
     for (arg, _) in &args.named {
         let known = order.contains(&arg.as_str()) || extra.contains(&arg.as_str());
         if !known && !arg.starts_with('$') {
-            ev.warning(format!("variable \"{arg}\" not specified as parameter"), span);
+            ev.warning(
+                format!("variable \"{arg}\" not specified as parameter"),
+                span,
+            );
         }
     }
 }
@@ -168,7 +214,9 @@ pub fn instantiate(
                 Some(Value::String(s)) if s.as_ref() == "orig" => false,
                 Some(Value::String(s)) => {
                     ev.warning(
-                        format!("sphere(style=\"{s}\") is not \"orig\" or \"octa\", using \"orig\""),
+                        format!(
+                            "sphere(style=\"{s}\") is not \"orig\" or \"octa\", using \"orig\""
+                        ),
                         span,
                     );
                     false
@@ -194,7 +242,10 @@ pub fn instantiate(
         "cylinder" => {
             let p = Params::new(args, &["h", "r1", "r2", "center"]);
             // A diameter wins over the matching radius, with a warning.
-            let mut pick = |radius: &str, diameter: &str| match (p.number(radius), p.number(diameter)) {
+            let mut pick = |radius: &str, diameter: &str| match (
+                p.number(radius),
+                p.number(diameter),
+            ) {
                 (Some(_), Some(d)) => {
                     ev.warning(
                         format!(
@@ -226,7 +277,13 @@ pub fn instantiate(
             let points = p
                 .get("points")
                 .and_then(Value::as_list)
-                .map(|items| items.iter().filter_map(Value::as_vec::<3>).map(DVec3::from_array).collect())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_vec::<3>)
+                        .map(DVec3::from_array)
+                        .collect()
+                })
                 .unwrap_or_default();
             let faces = p
                 .get("faces")
@@ -264,7 +321,13 @@ pub fn instantiate(
             let points = p
                 .get("points")
                 .and_then(Value::as_list)
-                .map(|items| items.iter().filter_map(Value::as_vec::<2>).map(DVec2::from_array).collect())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_vec::<2>)
+                        .map(DVec2::from_array)
+                        .collect()
+                })
                 .unwrap_or_default();
             leaf(NodeKind::Polygon {
                 points,
@@ -280,7 +343,10 @@ pub fn instantiate(
         }
         "rotate" => {
             let p = Params::new(args, &["a", "v"]);
-            node(NodeKind::Multmatrix(rotation(p.get("a"), p.get("v"))), children)
+            node(
+                NodeKind::Multmatrix(rotation(p.get("a"), p.get("v"))),
+                children,
+            )
         }
         "scale" => {
             let p = Params::new(args, &["v"]);
@@ -338,7 +404,10 @@ pub fn instantiate(
         }
         "resize" => {
             let p = Params::new(args, &["newsize", "auto", "convexity"]);
-            let size = p.get("newsize").and_then(vec3_lenient).unwrap_or(DVec3::ZERO);
+            let size = p
+                .get("newsize")
+                .and_then(vec3_lenient)
+                .unwrap_or(DVec3::ZERO);
             let auto = match p.get("auto") {
                 Some(Value::List(items)) => {
                     let b = |i: usize| items.get(i).is_some_and(Value::is_truthy);
@@ -399,9 +468,7 @@ pub fn instantiate(
                 .or_else(|| v.map(DVec3::length))
                 .unwrap_or(100.0)
                 .max(0.0);
-            let direction = v
-                .map(DVec3::normalize)
-                .filter(|d| d.x != 0.0 || d.y != 0.0);
+            let direction = v.map(DVec3::normalize).filter(|d| d.x != 0.0 || d.y != 0.0);
             node(
                 NodeKind::LinearExtrude {
                     height,
@@ -538,9 +605,24 @@ fn rotation(a: Option<&Value>, v: Option<&Value>) -> DMat4 {
         let (s, c) = (sin_degrees(angle), cos_degrees(angle));
         let t = 1.0 - c;
         DMat4::from_cols(
-            DVec4::new(t * u.x * u.x + c, t * u.x * u.y + s * u.z, t * u.x * u.z - s * u.y, 0.0),
-            DVec4::new(t * u.x * u.y - s * u.z, t * u.y * u.y + c, t * u.y * u.z + s * u.x, 0.0),
-            DVec4::new(t * u.x * u.z + s * u.y, t * u.y * u.z - s * u.x, t * u.z * u.z + c, 0.0),
+            DVec4::new(
+                t * u.x * u.x + c,
+                t * u.x * u.y + s * u.z,
+                t * u.x * u.z - s * u.y,
+                0.0,
+            ),
+            DVec4::new(
+                t * u.x * u.y - s * u.z,
+                t * u.y * u.y + c,
+                t * u.y * u.z + s * u.x,
+                0.0,
+            ),
+            DVec4::new(
+                t * u.x * u.z + s * u.y,
+                t * u.y * u.z - s * u.x,
+                t * u.z * u.z + c,
+                0.0,
+            ),
             DVec4::W,
         )
     };
@@ -551,7 +633,11 @@ fn rotation(a: Option<&Value>, v: Option<&Value>) -> DMat4 {
         }
         Some(value @ Value::List(items)) => {
             let angles = vec3_lenient(value).unwrap_or_else(|| {
-                DVec3::new(items.first().and_then(Value::as_number).unwrap_or(0.0), 0.0, 0.0)
+                DVec3::new(
+                    items.first().and_then(Value::as_number).unwrap_or(0.0),
+                    0.0,
+                    0.0,
+                )
             });
             // Rotate about X, then Y, then Z.
             axis_angle(angles.z, DVec3::Z)
@@ -603,12 +689,18 @@ mod tests {
 
     #[test]
     fn mirror_and_matrix() {
-        assert_eq!(mirror(DVec3::X).transform_point3(DVec3::new(2.0, 1.0, 0.0)), DVec3::new(-2.0, 1.0, 0.0));
+        assert_eq!(
+            mirror(DVec3::X).transform_point3(DVec3::new(2.0, 1.0, 0.0)),
+            DVec3::new(-2.0, 1.0, 0.0)
+        );
         let rows = Value::list(vec![
             Value::list(vec![1.0.into(), 0.0.into(), 0.0.into(), 5.0.into()]),
             Value::list(vec![0.0.into(), 1.0.into(), 0.0.into(), 0.0.into()]),
             Value::list(vec![0.0.into(), 0.0.into(), 1.0.into(), 0.0.into()]),
         ]);
-        assert_eq!(matrix(&rows).transform_point3(DVec3::ZERO), DVec3::new(5.0, 0.0, 0.0));
+        assert_eq!(
+            matrix(&rows).transform_point3(DVec3::ZERO),
+            DVec3::new(5.0, 0.0, 0.0)
+        );
     }
 }

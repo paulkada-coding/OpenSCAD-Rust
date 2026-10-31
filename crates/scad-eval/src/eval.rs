@@ -278,7 +278,18 @@ impl Evaluator {
                 }
                 let saved = self.file;
                 self.file = file;
-                let (included, id) = self.load_file(path, statement.span)?;
+                if self.resolve_path(path).is_none() {
+                    self.warning(format!("Can't find include file '{path}'."), statement.span);
+                    self.file = saved;
+                    continue;
+                }
+                let (included, id) = match self.load_file(path, statement.span) {
+                    Ok(loaded) => loaded,
+                    Err(err) => {
+                        self.file = saved;
+                        return Err(err);
+                    }
+                };
                 self.include_depth += 1;
                 let result = self.expand_includes(&included.statements, id, out);
                 self.include_depth -= 1;
@@ -770,8 +781,18 @@ impl Evaluator {
                 ev.warning(format!("Ignoring unknown module '{name}'"), name_span);
                 return Ok(None);
             }
-            let inner = Scope::child(&call_scope);
-            let child_nodes = ev.with_scope(&inner, |ev| ev.eval_block(children, &inner, frame))?;
+            let child_nodes = if !builtins::modules::accepts_children(name) {
+                if !children.is_empty() {
+                    ev.warning(
+                        format!("module {name}() does not support child modules"),
+                        span,
+                    );
+                }
+                Vec::new()
+            } else {
+                let inner = Scope::child(&call_scope);
+                ev.with_scope(&inner, |ev| ev.eval_block(children, &inner, frame))?
+            };
             builtins::modules::instantiate(ev, name, &values, child_nodes, span)
         })
     }
