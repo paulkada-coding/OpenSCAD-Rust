@@ -8,7 +8,12 @@ rust-version.workspace = true
 [dependencies]
 geometry = { version = "0.1.0", path = "../geometry" }
 manifold = { version = "0.1.0", path = "../manifold" }
+mesh-io = { version = "0.1.0", path = "../mesh-io" }
+scad-font = { version = "0.1.0", path = "../scad-font" }
 thiserror = "2.0.21"
+
+[dev-dependencies]
+scad-eval = { version = "0.1.0", path = "../scad-eval" }
 
 [lints]
 workspace = true
