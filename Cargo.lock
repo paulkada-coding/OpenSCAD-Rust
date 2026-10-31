@@ -263,8 +263,10 @@ dependencies = [
  "geometry",
  "log",
  "mesh-io",
+ "mesher",
  "render",
  "rfd",
+ "scad-eval",
  "serde",
 ]
 

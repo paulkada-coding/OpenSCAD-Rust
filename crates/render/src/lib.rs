@@ -9,5 +9,5 @@ pub mod scene;
 
 pub use camera::{OrbitCamera, Projection, ViewPreset};
 pub use headless::{HeadlessGpu, Image, RenderError, render_image};
-pub use scene::{OUTPUT_FORMAT, Scene, SceneStyle};
+pub use scene::{LayerKind, LayerMesh, OUTPUT_FORMAT, Scene, SceneStyle};
 pub use wgpu;
