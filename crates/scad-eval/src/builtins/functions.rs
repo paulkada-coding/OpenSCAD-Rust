@@ -48,6 +48,8 @@ const NAMES: &[&str] = &[
     "is_function",
     "is_object",
     "parent_module",
+    "fontmetrics",
+    "textmetrics",
 ];
 
 pub fn is_disabled_experimental(name: &str, options: &EvalOptions) -> bool {
@@ -254,6 +256,8 @@ pub fn call(ev: &mut Evaluator, name: &str, args: Arguments, span: Span) -> Eval
                 Value::string(ev.module_names[count - 1 - n].as_str())
             }
         }
+        "fontmetrics" => super::fonts::fontmetrics(ev, &args, span),
+        "textmetrics" => super::fonts::textmetrics(ev, &args, span),
         _ => {
             ev.warning(format!("Ignoring unknown function '{name}'"), span);
             Value::Undef
