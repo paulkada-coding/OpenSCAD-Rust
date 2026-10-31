@@ -994,8 +994,8 @@ non cambia nulla). Implementato in `scadr` (`crates/scadr`), verificato dal corp
 - Nomi validi (suffissi e `--export-format`): `stl`, `asciistl`, `binstl`, `off`, `wrl`, `3mf`, `csg`,
   `dxf`, `svg`, `pdf`, `png`, `echo`, `ast`, `term`, `nef3`, `nefdbg`, `param`, `pov`, `obj`.
 - `stl` in OpenSCAD è **STL ASCII** (l'help dice che il binario diventerà il default in futuro).
-  `scadr` scrive invece **STL binario** per `stl` (scelta del progetto); `asciistl` e `binstl`
-  sono espliciti in entrambi.
+  `scadr` fa lo stesso, per poter sostituire `openscad` negli script esistenti; `asciistl` e
+  `binstl` sono espliciti in entrambi. L'app esporta in binario o ASCII a scelta.
 - `-o -` scrive su stdout (serve `--export-format`, il suffisso vuoto non è valido).
 - Questi controlli avvengono **prima** di leggere e valutare il file (nessun `ECHO`), exit code 1:
 

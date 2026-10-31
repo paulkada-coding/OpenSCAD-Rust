@@ -42,9 +42,10 @@ impl ExportFormat {
         Ok(match name {
             "csg" => Self::Csg,
             "echo" => Self::Echo,
-            // OpenSCAD still defaults to ASCII for "stl"; we write binary.
-            "stl" | "binstl" => Self::Stl(StlFormat::Binary),
-            "asciistl" => Self::Stl(StlFormat::Ascii),
+            // Plain "stl" is ASCII, like OpenSCAD, so scadr is a drop-in
+            // replacement in existing scripts.
+            "stl" | "asciistl" => Self::Stl(StlFormat::Ascii),
+            "binstl" => Self::Stl(StlFormat::Binary),
             "off" => Self::Off,
             _ => return Err(()),
         })
@@ -489,8 +490,12 @@ mod tests {
     #[test]
     fn formats_resolve_like_openscad() {
         let f = |out: &str, fmt: Option<&str>| resolve_format(Path::new(out), fmt);
-        assert_eq!(f("a.stl", None), Ok(ExportFormat::Stl(StlFormat::Binary)));
-        assert_eq!(f("A.STL", None), Ok(ExportFormat::Stl(StlFormat::Binary)));
+        assert_eq!(f("a.stl", None), Ok(ExportFormat::Stl(StlFormat::Ascii)));
+        assert_eq!(f("A.STL", None), Ok(ExportFormat::Stl(StlFormat::Ascii)));
+        assert_eq!(
+            f("a.stl", Some("binstl")),
+            Ok(ExportFormat::Stl(StlFormat::Binary))
+        );
         assert_eq!(
             f("a.off", Some("asciistl")),
             Ok(ExportFormat::Stl(StlFormat::Ascii))
