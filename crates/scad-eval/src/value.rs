@@ -17,6 +17,7 @@ pub enum Value {
     List(Rc<[Value]>),
     Range(RangeValue),
     Function(Rc<Closure>),
+    Object(Rc<[(Name, Value)]>),
 }
 
 /// A function literal together with the scope it was created in.
@@ -87,6 +88,10 @@ impl Value {
         Self::List(items.into())
     }
 
+    pub fn object(entries: Vec<(Name, Value)>) -> Self {
+        Self::Object(entries.into())
+    }
+
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::Undef => "undefined",
@@ -96,6 +101,7 @@ impl Value {
             Self::List(_) => "vector",
             Self::Range(_) => "range",
             Self::Function(_) => "function",
+            Self::Object(_) => "object",
         }
     }
 
@@ -152,6 +158,7 @@ impl Value {
             Self::Number(n) => *n != 0.0,
             Self::String(s) => !s.is_empty(),
             Self::List(items) => !items.is_empty(),
+            Self::Object(entries) => !entries.is_empty(),
             Self::Range(_) | Self::Function(_) => true,
         }
     }
@@ -168,6 +175,12 @@ impl Value {
             }
             (Self::Range(a), Self::Range(b)) => a == b,
             (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
+            (Self::Object(a), Self::Object(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|((ka, va), (kb, vb))| ka == kb && va.equals(vb))
+            }
             _ => false,
         }
     }
@@ -272,13 +285,20 @@ impl Value {
         }
     }
 
-    /// `v[i]`; fractional indices are truncated.
+    /// `v[i]` on vectors/strings/ranges or `o["key"]` on objects.
     pub fn index(&self, index: &Self) -> Value {
+        if let (Self::Object(entries), Self::String(key)) = (self, index) {
+            return entries
+                .iter()
+                .find(|(k, _)| k.as_str() == key.as_ref())
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
+        }
         // Indices are truncated toward zero, so -0.5 selects element 0.
         let Some(i) = index.as_number().map(f64::trunc) else {
             return Self::Undef;
         };
-        if !(i >= 0.0) || !i.is_finite() {
+        if !i.is_finite() || i < 0.0 {
             return Self::Undef;
         }
         let i = i as usize;
@@ -299,17 +319,72 @@ impl Value {
         }
     }
 
-    /// `.x`, `.y`, `.z`, `.w` on vectors.
+    /// `.x`, `.y`, `.z` on vectors and `.field` on objects (without swizzle).
     pub fn member(&self, name: &str) -> Value {
-        // `.w` needs OpenSCAD's experimental vector-swizzle feature.
-        let i = match name {
-            "x" => 0,
-            "y" => 1,
-            "z" => 2,
-            _ => return Self::Undef,
-        };
+        self.member_with_swizzle(name, false)
+    }
+
+    /// Member lookup supporting optional `--enable=vector-swizzle` (`xyzw` / `rgba`, 1..=4 components).
+    pub fn member_with_swizzle(&self, name: &str, swizzle: bool) -> Value {
         match self {
-            Self::List(items) => items.get(i).cloned().unwrap_or_default(),
+            Self::Object(entries) => entries
+                .iter()
+                .find(|(k, _)| k.as_str() == name)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default(),
+            Self::List(items) => {
+                if !swizzle {
+                    let i = match name {
+                        "x" => 0,
+                        "y" => 1,
+                        "z" => 2,
+                        _ => return Self::Undef,
+                    };
+                    return items.get(i).cloned().unwrap_or_default();
+                }
+                if name.is_empty() || name.len() > 4 {
+                    return Self::Undef;
+                }
+                let indices: Option<Vec<usize>> =
+                    if name.bytes().all(|b| matches!(b, b'x' | b'y' | b'z' | b'w')) {
+                        Some(
+                            name.bytes()
+                                .map(|b| match b {
+                                    b'x' => 0,
+                                    b'y' => 1,
+                                    b'z' => 2,
+                                    _ => 3,
+                                })
+                                .collect(),
+                        )
+                    } else if name.bytes().all(|b| matches!(b, b'r' | b'g' | b'b' | b'a')) {
+                        Some(
+                            name.bytes()
+                                .map(|b| match b {
+                                    b'r' => 0,
+                                    b'g' => 1,
+                                    b'b' => 2,
+                                    _ => 3,
+                                })
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    };
+                let Some(indices) = indices else {
+                    return Self::Undef;
+                };
+                if indices.len() == 1 {
+                    items.get(indices[0]).cloned().unwrap_or_default()
+                } else {
+                    Self::list(
+                        indices
+                            .into_iter()
+                            .map(|i| items.get(i).cloned().unwrap_or_default())
+                            .collect(),
+                    )
+                }
+            }
             _ => Self::Undef,
         }
     }
@@ -317,7 +392,8 @@ impl Value {
 
 /// Truncation to i64 as in C++: out-of-range values and NaN become i64::MIN.
 fn to_int64(n: f64) -> i64 {
-    if n.is_finite() && n > -9.223_372_036_854_775_808e18 && n < 9.223_372_036_854_775_808e18 {
+    const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+    if n.is_finite() && n > -TWO_POW_63 && n < TWO_POW_63 {
         n as i64
     } else {
         i64::MIN
@@ -371,7 +447,10 @@ fn is_numeric_vector(items: &[Value]) -> bool {
 }
 
 fn is_matrix(items: &[Value]) -> bool {
-    !items.is_empty() && items.iter().all(|row| matches!(row, Value::List(r) if is_numeric_vector(r)))
+    !items.is_empty()
+        && items
+            .iter()
+            .all(|row| matches!(row, Value::List(r) if is_numeric_vector(r)))
 }
 
 /// Dot product, matrix × vector, vector × matrix and matrix × matrix.
@@ -489,6 +568,22 @@ impl Value {
                     crate::print::expr_to_string(&f.literal.body)
                 );
             }
+            Self::Object(entries) => {
+                if entries.is_empty() {
+                    out.push_str("{ }");
+                } else {
+                    out.push_str("{ ");
+                    for (i, (k, v)) in entries.iter().enumerate() {
+                        if i > 0 {
+                            out.push(' ');
+                        }
+                        let _ = write!(out, "{k} = ");
+                        v.write_repr(out);
+                        out.push(';');
+                    }
+                    out.push_str(" }");
+                }
+            }
         }
     }
 }
@@ -582,6 +677,9 @@ mod tests {
         assert!(list.index(&Value::Number(-1.0)).is_undef());
         assert!(list.index(&Value::Number(3.0)).is_undef());
         assert_eq!(list.member("z"), Value::Number(30.0));
-        assert_eq!(Value::string("abc").index(&Value::Number(1.0)), Value::string("b"));
+        assert_eq!(
+            Value::string("abc").index(&Value::Number(1.0)),
+            Value::string("b")
+        );
     }
 }

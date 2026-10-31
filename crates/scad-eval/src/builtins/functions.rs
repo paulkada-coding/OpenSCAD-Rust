@@ -2,21 +2,66 @@
 
 use std::cmp::Ordering;
 
-use scad_syntax::ast::Span;
+use scad_syntax::ast::{Name, Span};
 
-use crate::eval::Evaluator;
+use crate::eval::{EvalOptions, Evaluator};
 use crate::message::EvalResult;
 use crate::value::{Arguments, Value};
 
 const NAMES: &[&str] = &[
-    "abs", "sign", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "floor", "ceil",
-    "round", "ln", "log", "exp", "pow", "sqrt", "min", "max", "norm", "cross", "len", "concat",
-    "lookup", "str", "chr", "ord", "search", "rands", "version", "version_num", "is_undef",
-    "is_bool", "is_num", "is_string", "is_list", "is_function", "is_object", "parent_module",
+    "abs",
+    "sign",
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "atan2",
+    "floor",
+    "ceil",
+    "round",
+    "ln",
+    "log",
+    "exp",
+    "pow",
+    "sqrt",
+    "min",
+    "max",
+    "norm",
+    "cross",
+    "len",
+    "concat",
+    "lookup",
+    "str",
+    "chr",
+    "ord",
+    "search",
+    "rands",
+    "version",
+    "version_num",
+    "is_undef",
+    "is_bool",
+    "is_num",
+    "is_string",
+    "is_list",
+    "is_function",
+    "is_object",
+    "parent_module",
 ];
 
-pub fn exists(name: &str) -> bool {
+pub fn is_disabled_experimental(name: &str, options: &EvalOptions) -> bool {
+    match name {
+        "object" | "has_key" => !options.object_function,
+        "import" => !options.import_function,
+        _ => false,
+    }
+}
+
+pub fn exists(name: &str, options: &EvalOptions) -> bool {
     NAMES.contains(&name)
+        || (options.object_function && matches!(name, "object" | "has_key"))
+        || (options.import_function && name == "import")
 }
 
 /// OpenSCAD's version reported by `version()`: the nightly we target.
@@ -27,13 +72,20 @@ fn arity(name: &str) -> Option<usize> {
     match name {
         "abs" | "sign" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "floor" | "ceil"
         | "round" | "ln" | "exp" | "sqrt" | "norm" => Some(1),
-        "atan2" | "pow" | "lookup" | "cross" | "log" => Some(2),
+        "atan2" | "pow" | "lookup" | "cross" | "log" | "has_key" => Some(2),
         _ => None,
     }
 }
 
 /// `"argument 0: expected number, found string ("a")"`
-fn conversion_warning(ev: &mut Evaluator, name: &str, index: usize, expected: &str, found: &Value, span: Span) {
+fn conversion_warning(
+    ev: &mut Evaluator,
+    name: &str,
+    index: usize,
+    expected: &str,
+    found: &Value,
+    span: Span,
+) {
     ev.warning(
         format!(
             "{name}() parameter could not be converted: argument {index}: expected {expected}, found {} ({})",
@@ -126,6 +178,7 @@ pub fn call(ev: &mut Evaluator, name: &str, args: Arguments, span: Span) -> Eval
         "len" => match a.first() {
             Some(Value::List(items)) => Value::Number(items.len() as f64),
             Some(Value::String(s)) => Value::Number(s.chars().count() as f64),
+            Some(Value::Object(entries)) => Value::Number(entries.len() as f64),
             other => {
                 conversion_warning(ev, name, 0, "string", other.unwrap_or(&Value::Undef), span);
                 Value::Undef
@@ -161,8 +214,8 @@ pub fn call(ev: &mut Evaluator, name: &str, args: Arguments, span: Span) -> Eval
                 Value::Undef
             }
         },
-        "search" => search(a),
-        "rands" => rands(ev, a),
+        "search" => search(ev, a, span),
+        "rands" => rands(ev, a, span),
         "version" => Value::list(VERSION.iter().map(|&n| Value::Number(n)).collect()),
         "version_num" => Value::Number(VERSION[0] * 10000.0 + VERSION[1] * 100.0 + VERSION[2]),
         "is_undef" => Value::Bool(a.first().is_none_or(Value::is_undef)),
@@ -171,8 +224,21 @@ pub fn call(ev: &mut Evaluator, name: &str, args: Arguments, span: Span) -> Eval
         "is_string" => Value::Bool(matches!(a.first(), Some(Value::String(_)))),
         "is_list" => Value::Bool(matches!(a.first(), Some(Value::List(_)))),
         "is_function" => Value::Bool(matches!(a.first(), Some(Value::Function(_)))),
-        // Objects are an experimental feature we do not support yet.
-        "is_object" => Value::Bool(false),
+        "is_object" => Value::Bool(matches!(a.first(), Some(Value::Object(_)))),
+        "object" => construct_object(ev, &args, span),
+        "has_key" => match (&a[0], &a[1]) {
+            (Value::Object(entries), Value::String(key)) => {
+                Value::Bool(entries.iter().any(|(k, _)| k.as_str() == key.as_ref()))
+            }
+            (other, _) if !matches!(other, Value::Object(_)) => {
+                conversion_warning(ev, name, 0, "object", other, span);
+                Value::Undef
+            }
+            (_, other) => {
+                conversion_warning(ev, name, 1, "string", other, span);
+                Value::Undef
+            }
+        },
         "parent_module" => {
             let n = num(0).unwrap_or(1.0).max(0.0) as usize;
             let count = ev.module_names.len();
@@ -290,7 +356,9 @@ fn round_half_away(x: f64) -> f64 {
 fn min_max(ev: &mut Evaluator, name: &str, args: &[Value], span: Span) -> Value {
     let arity = |ev: &mut Evaluator, what: &str| {
         ev.warning(
-            format!("{name}() number of parameters does not match: expected at least 1{what}, found 0"),
+            format!(
+                "{name}() number of parameters does not match: expected at least 1{what}, found 0"
+            ),
             span,
         );
         Value::Undef
@@ -396,11 +464,17 @@ fn lookup(args: &[Value]) -> Value {
     }
     if low[0] > key {
         // Below every key: clamp to the smallest.
-        let min = points.iter().min_by(|a, b| a[0].total_cmp(&b[0])).unwrap_or(first);
+        let min = points
+            .iter()
+            .min_by(|a, b| a[0].total_cmp(&b[0]))
+            .unwrap_or(first);
         return Value::Number(min[1]);
     }
     if high[0] < key {
-        let max = points.iter().max_by(|a, b| a[0].total_cmp(&b[0])).unwrap_or(first);
+        let max = points
+            .iter()
+            .max_by(|a, b| a[0].total_cmp(&b[0]))
+            .unwrap_or(first);
         return Value::Number(max[1]);
     }
     if high[0] == low[0] {
@@ -428,18 +502,56 @@ fn push_chars(value: &Value, out: &mut String) {
 }
 
 /// `search(match, in, num_returns_per_match = 1, index_col_num = 0)`.
-fn search(args: &[Value]) -> Value {
-    let (Some(needle), Some(haystack)) = (args.first(), args.get(1)) else {
+fn search(ev: &mut Evaluator, args: &[Value], span: Span) -> Value {
+    if !(2..=4).contains(&args.len()) {
+        ev.warning(
+            format!(
+                "search() number of parameters does not match: expected between 2 and 4, found {}",
+                args.len()
+            ),
+            span,
+        );
         return Value::Undef;
-    };
-    let limit = args.get(2).and_then(Value::as_number).unwrap_or(1.0).max(0.0) as usize;
-    let column = args.get(3).and_then(Value::as_number).unwrap_or(0.0).max(0.0) as usize;
+    }
+    let (needle, haystack) = (&args[0], &args[1]);
+    let limit = args
+        .get(2)
+        .and_then(Value::as_number)
+        .unwrap_or(1.0)
+        .max(0.0) as usize;
+    let column = args
+        .get(3)
+        .and_then(Value::as_number)
+        .unwrap_or(0.0)
+        .max(0.0) as usize;
 
     let candidates: Vec<Value> = match haystack {
         Value::List(items) => items.to_vec(),
         Value::String(s) => s.chars().map(|c| Value::string(c.to_string())).collect(),
         _ => return Value::Undef,
     };
+    if let (Value::String(s), Value::List(items)) = (needle, haystack)
+        && !s.is_empty()
+    {
+        for (i, item) in items.iter().enumerate() {
+            let valid = match item {
+                Value::List(row) => row.len() > column,
+                Value::String(entry) => column == 0 && entry.chars().count() == 1,
+                _ => false,
+            };
+            if !valid {
+                ev.warning(
+                    format!(
+                        "Invalid entry in search vector at index {i}, required number of values in the entry: {}. Invalid entry: {}",
+                        column + 1,
+                        item.to_repr()
+                    ),
+                    span,
+                );
+                return Value::list(vec![]);
+            }
+        }
+    }
     // A list target is compared with whole rows, anything else with the
     // row's `column` entry.
     let matches = |item: &Value, target: &Value| -> bool {
@@ -485,7 +597,10 @@ fn search(args: &[Value]) -> Value {
                 .map(|t| {
                     let found = find(t);
                     if limit == 1 {
-                        found.into_iter().next().unwrap_or_else(|| Value::list(vec![]))
+                        found
+                            .into_iter()
+                            .next()
+                            .unwrap_or_else(|| Value::list(vec![]))
                     } else {
                         Value::list(found)
                     }
@@ -496,8 +611,132 @@ fn search(args: &[Value]) -> Value {
     }
 }
 
-/// `rands(min, max, count, seed)`. The sequence differs from OpenSCAD's.
-fn rands(ev: &mut Evaluator, args: &[Value]) -> Value {
+fn construct_object(ev: &mut Evaluator, args: &Arguments, span: Span) -> Value {
+    let upsert = |entries: &mut Vec<(Name, Value)>, key: Name, value: Value| {
+        if value.is_undef() {
+            entries.retain(|(k, _)| k != &key);
+        } else if let Some(slot) = entries.iter_mut().find(|(k, _)| k == &key) {
+            slot.1 = value;
+        } else {
+            entries.push((key, value));
+        }
+    };
+    let mut entries: Vec<(Name, Value)> = Vec::new();
+    let mut pos_iter = args.positional.iter();
+    let mut named_iter = args.named.iter();
+    for &is_named in &args.named_order {
+        if is_named {
+            if let Some((name, value)) = named_iter.next() {
+                upsert(&mut entries, name.clone(), value.clone());
+            }
+        } else if let Some(pos) = pos_iter.next() {
+            match pos {
+                Value::Object(src) => {
+                    for (k, v) in src.iter() {
+                        upsert(&mut entries, k.clone(), v.clone());
+                    }
+                }
+                Value::List(pairs) => {
+                    for pair in pairs.iter() {
+                        match pair.as_list() {
+                            Some([Value::String(k), v]) => {
+                                upsert(&mut entries, Name::from(k.as_ref()), v.clone());
+                            }
+                            _ => {
+                                ev.warning(
+                                    format!("object() invalid entry {}", pair.to_repr()),
+                                    span,
+                                );
+                            }
+                        }
+                    }
+                }
+                other => {
+                    ev.warning(
+                        format!(
+                            "object() unexpected positional argument {}",
+                            other.to_repr()
+                        ),
+                        span,
+                    );
+                }
+            }
+        }
+    }
+    Value::object(entries)
+}
+
+/// Standard 32-bit Mersenne Twister (`std::mt19937`), matching OpenSCAD's `rands()`.
+#[derive(Clone)]
+pub(crate) struct Mt19937 {
+    mt: [u32; 624],
+    index: usize,
+}
+
+impl Mt19937 {
+    const N: usize = 624;
+    const M: usize = 397;
+    const MATRIX_A: u32 = 0x9908_B0DF;
+    const UPPER_MASK: u32 = 0x8000_0000;
+    const LOWER_MASK: u32 = 0x7FFF_FFFF;
+
+    pub(crate) fn new(seed: u32) -> Self {
+        let mut mt = [0u32; Self::N];
+        mt[0] = seed;
+        for i in 1..Self::N {
+            let prev = mt[i - 1];
+            mt[i] = 1_812_433_253_u32
+                .wrapping_mul(prev ^ (prev >> 30))
+                .wrapping_add(i as u32);
+        }
+        Self { mt, index: Self::N }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        if self.index >= Self::N {
+            for i in 0..Self::N {
+                let y = (self.mt[i] & Self::UPPER_MASK)
+                    | (self.mt[(i + 1) % Self::N] & Self::LOWER_MASK);
+                self.mt[i] = self.mt[(i + Self::M) % Self::N]
+                    ^ (y >> 1)
+                    ^ if y & 1 != 0 { Self::MATRIX_A } else { 0 };
+            }
+            self.index = 0;
+        }
+        let mut y = self.mt[self.index];
+        self.index += 1;
+        y ^= y >> 11;
+        y ^= (y << 7) & 0x9D2C_5680;
+        y ^= (y << 15) & 0xEFC6_0000;
+        y ^= y >> 18;
+        y
+    }
+
+    /// `std::generate_canonical<double, 53>` over 32-bit `mt19937` draws.
+    fn next_canonical(&mut self) -> f64 {
+        let r0 = f64::from(self.next_u32());
+        let r1 = f64::from(self.next_u32());
+        let x = (r0 + r1 * 4_294_967_296.0) / 18_446_744_073_709_551_616.0;
+        if x >= 1.0 {
+            1.0 - f64::EPSILON / 2.0
+        } else {
+            x
+        }
+    }
+}
+
+/// `rands(min, max, count[, seed])` with exact `std::mt19937` semantics.
+fn rands(ev: &mut Evaluator, args: &[Value], span: Span) -> Value {
+    if args.len() != 3 && args.len() != 4 {
+        ev.warning(
+            format!(
+                "rands() number of parameters does not match: expected 3 or 4, found {}",
+                args.len()
+            ),
+            span,
+        );
+        return Value::Undef;
+    }
     let (Some(min), Some(max), Some(count)) = (
         args.first().and_then(Value::as_number),
         args.get(1).and_then(Value::as_number),
@@ -505,28 +744,29 @@ fn rands(ev: &mut Evaluator, args: &[Value]) -> Value {
     ) else {
         return Value::Undef;
     };
-    let mut state = match args.get(3).and_then(Value::as_number) {
-        Some(seed) => seed.to_bits() ^ 0x2545_F491_4F6C_DD1D,
-        None => ev.rng_state,
-    };
-    let mut next = || {
-        // splitmix64
-        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    };
+    if !min.is_finite() || !max.is_finite() || !count.is_finite() {
+        return Value::Undef;
+    }
+    let (min, max) = if min > max { (max, min) } else { (min, max) };
     let count = count.clamp(0.0, 1e6) as usize;
+    let mut local_rng;
+    let rng = match args.get(3).and_then(Value::as_number) {
+        Some(seed) => {
+            local_rng = Mt19937::new((seed.trunc() as i64) as u32);
+            &mut local_rng
+        }
+        None => &mut ev.rng,
+    };
     let values = (0..count)
         .map(|_| {
-            let unit = (next() >> 11) as f64 / (1u64 << 53) as f64;
-            Value::Number(min + unit * (max - min))
+            if min == max {
+                Value::Number(min)
+            } else {
+                let u = rng.next_canonical();
+                Value::Number(u * (max - min) + min)
+            }
         })
         .collect();
-    if args.get(3).is_none() {
-        ev.rng_state = state;
-    }
     Value::list(values)
 }
 

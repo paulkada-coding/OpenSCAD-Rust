@@ -14,22 +14,59 @@ const USAGE: &str = "uso: scadr [-o output.csg] [--enable=feature]... input.scad
 struct Options {
     input: PathBuf,
     output: Option<PathBuf>,
+    object_function: bool,
+    vector_swizzle: bool,
+    import_function: bool,
+}
+
+fn enable_feature(
+    feature: &str,
+    object_function: &mut bool,
+    vector_swizzle: &mut bool,
+    import_function: &mut bool,
+) {
+    match feature {
+        "all" => {
+            *object_function = true;
+            *vector_swizzle = true;
+            *import_function = true;
+        }
+        "object-function" => *object_function = true,
+        "vector-swizzle" => *vector_swizzle = true,
+        "import-function" => *import_function = true,
+        _ => {}
+    }
 }
 
 fn parse_args() -> Result<Options, String> {
     let mut input = None;
     let mut output = None;
+    let mut object_function = false;
+    let mut vector_swizzle = false;
+    let mut import_function = false;
     let mut args = std::env::args_os().skip(1);
     while let Some(arg) = args.next() {
         let text = arg.to_string_lossy();
         match text.as_ref() {
             "-o" => output = Some(PathBuf::from(args.next().ok_or("-o richiede un file")?)),
             "-h" | "--help" => return Err(USAGE.into()),
-            // Experimental feature flags are accepted and ignored.
-            flag if flag.starts_with("--enable") => {
-                if flag == "--enable" {
-                    args.next();
-                }
+            "--enable" => {
+                let feat = args.next().ok_or("--enable richiede una feature")?;
+                enable_feature(
+                    &feat.to_string_lossy(),
+                    &mut object_function,
+                    &mut vector_swizzle,
+                    &mut import_function,
+                );
+            }
+            flag if flag.starts_with("--enable=") => {
+                let feat = &flag["--enable=".len()..];
+                enable_feature(
+                    feat,
+                    &mut object_function,
+                    &mut vector_swizzle,
+                    &mut import_function,
+                );
             }
             flag if flag.starts_with('-') => return Err(format!("opzione sconosciuta: {flag}")),
             _ => input = Some(PathBuf::from(&arg)),
@@ -38,6 +75,9 @@ fn parse_args() -> Result<Options, String> {
     Ok(Options {
         input: input.ok_or(USAGE)?,
         output,
+        object_function,
+        vector_swizzle,
+        import_function,
     })
 }
 
@@ -60,6 +100,9 @@ fn main() -> ExitCode {
     // `$preview` is true for CSG export, like OpenSCAD.
     let mut evaluator = Evaluator::new(EvalOptions {
         preview: true,
+        object_function: options.object_function,
+        vector_swizzle: options.vector_swizzle,
+        import_function: options.import_function,
         ..EvalOptions::default()
     });
     let (nodes, error) = evaluator.run(&options.input, &text);

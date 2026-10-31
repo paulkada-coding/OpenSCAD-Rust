@@ -33,6 +33,12 @@ pub struct EvalOptions {
     pub library_paths: Vec<PathBuf>,
     /// Value of `$preview`.
     pub preview: bool,
+    /// `--enable=object-function`: enables `object()` and `has_key()`.
+    pub object_function: bool,
+    /// `--enable=vector-swizzle`: enables `.xyzw` / `.rgba` swizzling on vectors.
+    pub vector_swizzle: bool,
+    /// `--enable=import-function`: enables `import()` as an expression function.
+    pub import_function: bool,
 }
 
 pub struct SourceInfo {
@@ -97,12 +103,12 @@ pub struct Evaluator {
     parsed: FxHashMap<PathBuf, (Rc<SourceFile>, u32)>,
     libraries: FxHashMap<PathBuf, Rc<Scope>>,
     pub(crate) module_names: Vec<Name>,
-    pub(crate) rng_state: u64,
+    pub(crate) rng: builtins::functions::Mt19937,
     root_modifiers: usize,
     trace: Vec<TraceFrame>,
     top_scope: Option<Rc<Scope>>,
     top_nodes: Vec<Node>,
-    options: EvalOptions,
+    pub(crate) options: EvalOptions,
 }
 
 impl Evaluator {
@@ -117,7 +123,7 @@ impl Evaluator {
             parsed: FxHashMap::default(),
             libraries: FxHashMap::default(),
             module_names: Vec::new(),
-            rng_state: 0x9E37_79B9_7F4A_7C15,
+            rng: builtins::functions::Mt19937::new(5489),
             root_modifiers: 0,
             trace: Vec::new(),
             top_scope: None,
@@ -1001,6 +1007,10 @@ impl Evaluator {
                 range.iter().map(Value::Number).collect()
             }
             Value::String(s) => s.chars().map(|c| Value::string(c.to_string())).collect(),
+            Value::Object(entries) => entries
+                .iter()
+                .map(|(k, _)| Value::string(k.as_str()))
+                .collect(),
             Value::Undef => Vec::new(),
             other => vec![other.clone()],
         })
@@ -1231,7 +1241,9 @@ impl Evaluator {
                 let index = self.eval_expr(index, scope)?;
                 target.index(&index)
             }
-            ExprKind::Member { target, member } => self.eval_expr(target, scope)?.member(member),
+            ExprKind::Member { target, member } => self
+                .eval_expr(target, scope)?
+                .member_with_swizzle(member, self.options.vector_swizzle),
             ExprKind::Range { start, step, end } => {
                 let start = self.eval_expr(start, scope)?;
                 let step = match step {
@@ -1420,7 +1432,14 @@ impl Evaluator {
                 Some(Callee::User(def, def_scope, file))
             } else if let Some(Value::Function(closure)) = scope.lookup_var(name) {
                 Some(Callee::Closure(closure))
-            } else if builtins::functions::exists(name) {
+            } else if builtins::functions::is_disabled_experimental(name, &self.options) {
+                self.warning(
+                    format!("Experimental builtin function '{name}' is not enabled"),
+                    callee.span,
+                );
+                self.warning(format!("Ignoring unknown function '{name}'"), callee.span);
+                return Ok(Tail::Value(Value::Undef));
+            } else if builtins::functions::exists(name, &self.options) {
                 let values = self.eval_args(args, scope)?;
                 return builtins::functions::call(self, name, values, span).map(Tail::Value);
             } else {
