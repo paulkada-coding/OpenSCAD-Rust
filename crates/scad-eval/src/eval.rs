@@ -241,7 +241,7 @@ impl Evaluator {
 
     /// Resolves an include/use path relative to the current file, then to
     /// the library directories.
-    fn resolve_path(&self, relative: &str) -> Option<PathBuf> {
+    pub(crate) fn resolve_path(&self, relative: &str) -> Option<PathBuf> {
         let base = self
             .files
             .get(self.file as usize)

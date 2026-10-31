@@ -40,7 +40,9 @@ pub enum OffsetKind {
 pub enum NodeKind {
     /// Groups children without an operation of its own (user modules,
     /// `for`, `if`, implicit unions). `name` is the instantiated module.
-    Group { name: String },
+    Group {
+        name: String,
+    },
     Union,
     Difference,
     Intersection,
@@ -122,8 +124,38 @@ pub enum NodeKind {
         paths: Option<Vec<Vec<usize>>>,
         convexity: f64,
     },
-    /// Builtins not meshed yet (text, import, surface…), kept with their
-    /// arguments already formatted for the CSG export.
+    Text {
+        text: String,
+        size: f64,
+        spacing: f64,
+        font: String,
+        direction: String,
+        language: String,
+        script: Option<String>,
+        halign: String,
+        valign: String,
+        tessellation: Segments,
+    },
+    Import {
+        file: String,
+        layer: Option<String>,
+        origin: DVec2,
+        dpi: Option<f64>,
+        scale: f64,
+        center: bool,
+        convexity: f64,
+        tessellation: Segments,
+        timestamp: i64,
+    },
+    Surface {
+        file: String,
+        center: bool,
+        invert: bool,
+        convexity: f64,
+        timestamp: i64,
+    },
+    /// Builtins not meshed yet, kept with their arguments already formatted
+    /// for the CSG export.
     Other {
         name: String,
         args: String,

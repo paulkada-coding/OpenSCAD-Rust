@@ -64,7 +64,12 @@ fn vec3(v: DVec3) -> String {
 }
 
 fn segments(s: &Segments) -> String {
-    format!("$fn = {}, $fa = {}, $fs = {}", num(s.fn_), num(s.fa), num(s.fs))
+    format!(
+        "$fn = {}, $fa = {}, $fs = {}",
+        num(s.fn_),
+        num(s.fa),
+        num(s.fs)
+    )
 }
 
 fn bool_text(b: bool) -> &'static str {
@@ -75,7 +80,13 @@ fn matrix(m: &DMat4) -> String {
     let rows: Vec<String> = (0..4)
         .map(|r| {
             let row = m.row(r);
-            format!("[{}, {}, {}, {}]", num(row.x), num(row.y), num(row.z), num(row.w))
+            format!(
+                "[{}, {}, {}, {}]",
+                num(row.x),
+                num(row.y),
+                num(row.z),
+                num(row.w)
+            )
         })
         .collect();
     format!("[{}]", rows.join(", "))
@@ -192,7 +203,11 @@ fn describe(kind: &NodeKind) -> String {
             num(*convexity)
         ),
         NodeKind::Cube { size, center } => {
-            format!("cube(size = {}, center = {})", vec3(*size), bool_text(*center))
+            format!(
+                "cube(size = {}, center = {})",
+                vec3(*size),
+                bool_text(*center)
+            )
         }
         NodeKind::Sphere {
             r,
@@ -232,7 +247,11 @@ fn describe(kind: &NodeKind) -> String {
             )
         }
         NodeKind::Square { size, center } => {
-            format!("square(size = {}, center = {})", vec2(*size), bool_text(*center))
+            format!(
+                "square(size = {}, center = {})",
+                vec2(*size),
+                bool_text(*center)
+            )
         }
         NodeKind::Circle { r, tessellation } => {
             format!("circle({}, r = {})", segments(tessellation), num(*r))
@@ -243,7 +262,9 @@ fn describe(kind: &NodeKind) -> String {
             convexity,
         } => {
             let points: Vec<String> = points.iter().map(|p| vec2(*p)).collect();
-            let paths = paths.as_deref().map_or_else(|| "undef".to_string(), index_lists);
+            let paths = paths
+                .as_deref()
+                .map_or_else(|| "undef".to_string(), index_lists);
             format!(
                 "polygon(points = [{}], paths = {}, convexity = {})",
                 points.join(", "),
@@ -251,6 +272,73 @@ fn describe(kind: &NodeKind) -> String {
                 num(*convexity)
             )
         }
+        NodeKind::Text {
+            text,
+            size,
+            spacing,
+            font,
+            direction,
+            language,
+            script,
+            halign,
+            valign,
+            tessellation,
+        } => {
+            let mut s = format!(
+                "text(text = \"{text}\", size = {}, spacing = {}, font = \"{font}\", direction = \"{direction}\", language = \"{language}\"",
+                num(*size),
+                num(*spacing),
+            );
+            if let Some(script) = script {
+                let _ = write!(s, ", script = \"{script}\"");
+            }
+            let _ = write!(
+                s,
+                ", halign = \"{halign}\", valign = \"{valign}\", {})",
+                segments(tessellation)
+            );
+            s
+        }
+        NodeKind::Import {
+            file,
+            layer,
+            origin,
+            dpi,
+            scale,
+            center,
+            convexity,
+            tessellation,
+            timestamp,
+        } => {
+            let mut s = format!("import(file = \"{file}\"");
+            if let Some(layer) = layer {
+                let _ = write!(s, ", layer = \"{layer}\"");
+            }
+            let _ = write!(s, ", origin = {}", vec2(*origin));
+            if let Some(dpi) = dpi {
+                let _ = write!(s, ", dpi = {}", num(*dpi));
+            }
+            let _ = write!(
+                s,
+                ", scale = {}, center = {}, convexity = {}, {}, timestamp = {timestamp})",
+                num(*scale),
+                bool_text(*center),
+                num(*convexity),
+                segments(tessellation)
+            );
+            s
+        }
+        NodeKind::Surface {
+            file,
+            center,
+            invert,
+            timestamp,
+            ..
+        } => format!(
+            "surface(file = \"{file}\", center = {}, invert = {}, timestamp = {timestamp})",
+            bool_text(*center),
+            bool_text(*invert)
+        ),
         NodeKind::Other { name, args } => format!("{name}({args})"),
     }
 }

@@ -85,6 +85,22 @@ fn signature(name: &str) -> Option<(&'static [&'static str], &'static [&'static 
         "rotate_extrude" => (&["angle", "convexity"], &["start"]),
         "projection" => (&["cut", "convexity"], &[]),
         "render" | "minkowski" => (&["convexity"], &[]),
+        "text" => (
+            &["text", "size", "font"],
+            &[
+                "halign",
+                "valign",
+                "spacing",
+                "direction",
+                "language",
+                "script",
+            ],
+        ),
+        "import" => (
+            &["file", "layer", "convexity", "origin", "scale"],
+            &["width", "height", "filename", "center", "dpi", "id"],
+        ),
+        "surface" => (&["file", "center", "invert"], &["convexity"]),
         "union" | "difference" | "intersection" | "hull" | "group" | "fill" => (&[], &[]),
         _ => return None,
     })
@@ -646,6 +662,130 @@ pub fn instantiate(
             )
         }
         "group" => Ok(Some(Node::group("group", children))),
+        "text" => {
+            let p = Params::new(args, &["text", "size", "font"]);
+            let text = match p.get("text") {
+                None | Some(Value::Undef) => String::new(),
+                Some(Value::String(s)) => s.to_string(),
+                Some(other) => {
+                    ev.warning(
+                        format!(
+                            "text(..., text={}) Invalid type: expected string, found {}",
+                            other.to_repr(),
+                            other.type_name()
+                        ),
+                        span,
+                    );
+                    String::new()
+                }
+            };
+            let size = p.number("size").unwrap_or(10.0);
+            let spacing = p.number("spacing").unwrap_or(1.0);
+            let font = p
+                .get("font")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let language = p
+                .get("language")
+                .and_then(Value::as_str)
+                .unwrap_or("en")
+                .to_string();
+            let halign = p
+                .get("halign")
+                .and_then(Value::as_str)
+                .unwrap_or("default")
+                .to_string();
+            let valign = p
+                .get("valign")
+                .and_then(Value::as_str)
+                .unwrap_or("default")
+                .to_string();
+            let script = match p.get("script").and_then(Value::as_str) {
+                Some(s) if !s.is_empty() => Some(normalize_iso15924_tag(s)),
+                _ => detect_iso15924_script(&text).map(str::to_string),
+            };
+            let direction = match p.get("direction").and_then(Value::as_str) {
+                Some(d) if !d.is_empty() => d.to_string(),
+                _ => {
+                    if matches!(script.as_deref(), Some("Arab" | "Hebr" | "Syrc" | "Thaa")) {
+                        "rtl".to_string()
+                    } else {
+                        "ltr".to_string()
+                    }
+                }
+            };
+            leaf(NodeKind::Text {
+                text,
+                size,
+                spacing,
+                font,
+                direction,
+                language,
+                script,
+                halign,
+                valign,
+                tessellation: tessellation(ev, span),
+            })
+        }
+        "import" => {
+            let p = Params::new(args, &["file", "layer", "convexity", "origin", "scale"]);
+            let file = p
+                .get("file")
+                .or_else(|| p.get("filename"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let layer = match p.get("layer") {
+                None | Some(Value::Undef) => None,
+                Some(Value::String(s)) if s.is_empty() => None,
+                Some(Value::String(s)) => Some(s.to_string()),
+                Some(other) => Some(other.to_repr()),
+            };
+            let origin = p
+                .get("origin")
+                .and_then(Value::as_vec::<2>)
+                .map_or(DVec2::ZERO, DVec2::from_array);
+            let is_svg = std::path::Path::new(&file)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"));
+            let dpi = is_svg.then(|| p.number("dpi").unwrap_or(72.0));
+            let scale = p.number("scale").unwrap_or(1.0);
+            let center = p.bool("center", false);
+            let convexity = p.number("convexity").unwrap_or(1.0);
+            let tessellation = tessellation(ev, span);
+            let timestamp = file_mtime_secs(ev, &file);
+            leaf(NodeKind::Import {
+                file,
+                layer,
+                origin,
+                dpi,
+                scale,
+                center,
+                convexity,
+                tessellation,
+                timestamp,
+            })
+        }
+        "surface" => {
+            let p = Params::new(args, &["file", "center", "invert"]);
+            let file = p
+                .get("file")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let center = p.bool("center", false);
+            let invert = p.bool("invert", false);
+            let convexity = p.number("convexity").unwrap_or(1.0);
+            let timestamp = file_mtime_secs(ev, &file);
+            leaf(NodeKind::Surface {
+                file,
+                center,
+                invert,
+                convexity,
+                timestamp,
+            })
+        }
         _ => {
             // Not meshed yet: keep the call with its arguments.
             let mut parts: Vec<String> = args.positional.iter().map(Value::to_repr).collect();
@@ -663,6 +803,68 @@ pub fn instantiate(
             )
         }
     }
+}
+
+fn file_mtime_secs(ev: &Evaluator, relative: &str) -> i64 {
+    if relative.is_empty() {
+        return 0;
+    }
+    ev.resolve_path(relative)
+        .and_then(|p| std::fs::metadata(p).ok())
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
+/// Normalizes an explicit `script = "..."` tag to a 4-character TitleCase ISO 15924 code
+/// (e.g. `"latin"` -> `"Lati"`, `"arabic"` -> `"Arab"`), matching HarfBuzz's `hb_script_from_string`.
+pub(crate) fn normalize_iso15924_tag(tag: &str) -> String {
+    let mut chars = tag.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut out = String::with_capacity(4);
+    out.push(first.to_ascii_uppercase());
+    for c in chars.take(3) {
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+/// Detects the ISO 15924 4-letter script tag of the first non-Common/Inherited
+/// character in `text`, or `None` if all characters are script-neutral.
+pub(crate) fn detect_iso15924_script(text: &str) -> Option<&'static str> {
+    for c in text.chars() {
+        let code = c as u32;
+        let script = match code {
+            0x0041..=0x005A
+            | 0x0061..=0x007A
+            | 0x00C0..=0x00D6
+            | 0x00D8..=0x00F6
+            | 0x00F8..=0x02AF
+            | 0x1E00..=0x1EFF => Some("Latn"),
+            0x0370..=0x03FF | 0x1F00..=0x1FFF => Some("Grek"),
+            0x0400..=0x052F | 0x2DE0..=0x2DFF | 0xA640..=0xA69F => Some("Cyrl"),
+            0x0530..=0x058F => Some("Armn"),
+            0x0590..=0x05FF => Some("Hebr"),
+            0x0600..=0x06FF
+            | 0x0750..=0x077F
+            | 0x08A0..=0x08FF
+            | 0xFB50..=0xFDFF
+            | 0xFE70..=0xFEFF => Some("Arab"),
+            0x0900..=0x097F => Some("Deva"),
+            0x0E00..=0x0E7F => Some("Thai"),
+            0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7AF => Some("Hang"),
+            0x3040..=0x309F => Some("Hira"),
+            0x30A0..=0x30FF => Some("Kana"),
+            0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2CEAF => Some("Hani"),
+            _ => None,
+        };
+        if script.is_some() {
+            return script;
+        }
+    }
+    None
 }
 
 /// `r` or `d` (diameter wins, with a warning when both are given).
