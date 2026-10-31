@@ -8,7 +8,7 @@ mod print;
 mod scope;
 mod value;
 
-pub use eval::{EvalOptions, Evaluator, SourceInfo};
+pub use eval::{EvalOptions, Evaluator, ResolvedSource, SourceInfo};
 pub use message::{EvalError, EvalResult, Level, Message};
 pub use value::{Arguments, RangeValue, Value};
 

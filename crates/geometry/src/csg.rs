@@ -12,6 +12,20 @@ pub struct SourceRef {
     pub end: u32,
 }
 
+impl SourceRef {
+    pub fn len(&self) -> u32 {
+        self.end.saturating_sub(self.start)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.end <= self.start
+    }
+
+    pub fn contains(&self, file: u32, offset: u32) -> bool {
+        self.file == file && offset >= self.start && offset <= self.end
+    }
+}
+
 /// Tessellation settings (`$fn`, `$fa`, `$fs`) captured at instantiation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Segments {
@@ -174,7 +188,10 @@ pub struct Node {
     pub kind: NodeKind,
     pub children: Vec<Node>,
     pub modifiers: NodeModifiers,
+    /// Immediate statement that created this node (may be inside a user module or library).
     pub source: Option<SourceRef>,
+    /// Top-level statement in the evaluated program that triggered this subtree.
+    pub root_call: Option<SourceRef>,
 }
 
 impl Node {
@@ -184,6 +201,7 @@ impl Node {
             children,
             modifiers: NodeModifiers::default(),
             source: None,
+            root_call: None,
         }
     }
 
@@ -194,5 +212,23 @@ impl Node {
     pub fn with_source(mut self, source: SourceRef) -> Self {
         self.source = Some(source);
         self
+    }
+
+    pub fn with_root_call(mut self, root_call: Option<SourceRef>) -> Self {
+        self.root_call = root_call;
+        self
+    }
+
+    /// Finds the deepest node whose `source` (or `root_call`) covers `(file, offset)`.
+    /// Useful for highlighting 3D geometry at the editor cursor position.
+    pub fn find_at_offset(&self, file: u32, offset: u32) -> Option<&Node> {
+        for child in &self.children {
+            if let Some(found) = child.find_at_offset(file, offset) {
+                return Some(found);
+            }
+        }
+        let matches_self = self.source.is_some_and(|s| s.contains(file, offset))
+            || self.root_call.is_some_and(|s| s.contains(file, offset));
+        matches_self.then_some(self)
     }
 }

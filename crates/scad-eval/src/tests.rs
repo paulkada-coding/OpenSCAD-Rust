@@ -37,7 +37,10 @@ fn arithmetic_and_formatting() {
     assert_eq!(echo1("-2 ^ 2"), "-4");
     assert_eq!(echo1("7 % 3, 1 / 4"), "1, 0.25");
     assert_eq!(echo1("[1, 2] + [3, 4]"), "[4, 6]");
-    assert_eq!(echo1("\"a\", [\"b\"], true, undef"), "\"a\", [\"b\"], true, undef");
+    assert_eq!(
+        echo1("\"a\", [\"b\"], true, undef"),
+        "\"a\", [\"b\"], true, undef"
+    );
     assert_eq!(echo1("x = 1"), "x = 1");
     assert_eq!(echo1("str(\"a\", 1, [2])"), "\"a1[2]\"");
 }
@@ -71,9 +74,15 @@ fn function_literals_and_closures() {
 #[test]
 fn list_comprehensions() {
     assert_eq!(echo1("[for (i = [0:4]) if (i % 2 == 0) i]"), "[0, 2, 4]");
-    assert_eq!(echo1("[for (i = [1:2], j = [1:2]) i * 10 + j]"), "[11, 12, 21, 22]");
+    assert_eq!(
+        echo1("[for (i = [1:2], j = [1:2]) i * 10 + j]"),
+        "[11, 12, 21, 22]"
+    );
     assert_eq!(echo1("[each [1, 2], each [3:4], 5]"), "[1, 2, 3, 4, 5]");
-    assert_eq!(echo1("[for (i = 0, j = 1; i < 4; i = i + 1, j = j * 2) j]"), "[1, 2, 4, 8]");
+    assert_eq!(
+        echo1("[for (i = 0, j = 1; i < 4; i = i + 1, j = j * 2) j]"),
+        "[1, 2, 4, 8]"
+    );
     assert_eq!(echo1("[let (a = 2, b = a * 3) b]"), "[6]");
     assert_eq!(echo1("[for (c = \"ab\") c]"), "[\"a\", \"b\"]");
 }
@@ -115,7 +124,8 @@ fn children_count() {
 
 #[test]
 fn for_module_and_if() {
-    let (root, _) = run("for (i = [0:2]) translate([i, 0, 0]) cube(1); if (false) cube(); else sphere();");
+    let (root, _) =
+        run("for (i = [0:2]) translate([i, 0, 0]) cube(1); if (false) cube(); else sphere();");
     assert_eq!(root.children[0].children.len(), 3);
     let if_node = &root.children[1];
     assert!(matches!(if_node.children[0].kind, NodeKind::Sphere { .. }));
@@ -143,7 +153,11 @@ fn primitives_resolve_parameters() {
 #[test]
 fn unknown_names_warn() {
     let (_, lines) = run("echo(nope); foo(); x = bar(1);");
-    assert!(lines.iter().any(|l| l.contains("unknown variable \"nope\"")));
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("unknown variable \"nope\""))
+    );
     assert!(lines.iter().any(|l| l.contains("unknown module 'foo'")));
     assert!(lines.iter().any(|l| l.contains("unknown function 'bar'")));
 }
@@ -153,7 +167,11 @@ fn assert_failure_stops() {
     let mut ev = Evaluator::new(EvalOptions::default());
     let (_, err) = ev.run(Path::new("t.scad"), "x = 1;\nassert(x > 2, \"too small\");");
     let err = err.expect("assert must fail");
-    assert!(err.message.contains("Assertion '(x > 2)' failed"), "{}", err.message);
+    assert!(
+        err.message.contains("Assertion '(x > 2)' failed"),
+        "{}",
+        err.message
+    );
     assert!(ev.messages().iter().all(|m| m.level != Level::Error));
 }
 
@@ -170,4 +188,36 @@ fn modifiers_and_disable() {
     assert_eq!(root.children.len(), 2);
     assert!(root.children[0].modifiers.highlight);
     assert!(root.children[1].modifiers.background);
+}
+
+#[test]
+fn source_mapping_tracks_leaf_and_root_call() {
+    let src = "module part(r) {\n    sphere(r);\n}\npart(5);\ncube(2);\n";
+    let mut ev = Evaluator::new(EvalOptions::default());
+    let (nodes, err) = ev.run(Path::new("main.scad"), src);
+    assert!(err.is_none());
+    assert_eq!(nodes.len(), 2);
+
+    let part_group = &nodes[0];
+    let sphere_leaf = &part_group.children[0];
+    assert!(matches!(sphere_leaf.kind, NodeKind::Sphere { .. }));
+
+    let leaf_src = ev
+        .resolve_source(sphere_leaf.source.expect("leaf source"))
+        .expect("resolved leaf");
+    assert_eq!(leaf_src.start_line_col, (2, 5));
+    assert_eq!(leaf_src.snippet, "sphere(r);");
+
+    let root_src = ev
+        .resolve_source(sphere_leaf.root_call.expect("root call"))
+        .expect("resolved root");
+    assert_eq!(root_src.start_line_col, (4, 1));
+    assert_eq!(root_src.snippet, "part(5);");
+
+    let root = Node::group("", nodes);
+    let cursor_on_sphere = src.find("sphere(r)").unwrap() as u32;
+    let hit = root
+        .find_at_offset(0, cursor_on_sphere)
+        .expect("node at cursor");
+    assert!(matches!(hit.kind, NodeKind::Sphere { .. }));
 }

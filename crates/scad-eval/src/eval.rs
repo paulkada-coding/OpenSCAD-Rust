@@ -47,6 +47,15 @@ pub struct SourceInfo {
     pub index: LineIndex,
 }
 
+/// Human-readable source location resolved from a [`SourceRef`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedSource<'a> {
+    pub path: &'a Path,
+    pub start_line_col: (u32, u32),
+    pub end_line_col: (u32, u32),
+    pub snippet: &'a str,
+}
+
 /// Children passed to the user module currently executing, for `children()`.
 struct Frame<'a> {
     children: &'a [Statement],
@@ -108,6 +117,7 @@ pub struct Evaluator {
     trace: Vec<TraceFrame>,
     top_scope: Option<Rc<Scope>>,
     top_nodes: Vec<Node>,
+    current_root_call: Option<SourceRef>,
     pub(crate) options: EvalOptions,
 }
 
@@ -128,6 +138,7 @@ impl Evaluator {
             trace: Vec::new(),
             top_scope: None,
             top_nodes: Vec::new(),
+            current_root_call: None,
             options,
         }
     }
@@ -142,6 +153,21 @@ impl Evaluator {
 
     pub fn files(&self) -> &[SourceInfo] {
         &self.files
+    }
+
+    /// Resolves a [`SourceRef`] from a CSG [`Node`] back to file path, 1-based
+    /// `(line, col)` coordinates, and the exact source snippet.
+    pub fn resolve_source(&self, r: SourceRef) -> Option<ResolvedSource<'_>> {
+        let info = self.files.get(r.file as usize)?;
+        let start = (r.start as usize).min(info.text.len());
+        let end = (r.end as usize).min(info.text.len()).max(start);
+        let snippet = info.text.get(start..end).unwrap_or("");
+        Some(ResolvedSource {
+            path: &info.path,
+            start_line_col: info.index.line_col((start as u32).into()),
+            end_line_col: info.index.line_col((end as u32).into()),
+            snippet,
+        })
     }
 
     /// Evaluates a whole program and returns its top-level nodes. When an
@@ -611,13 +637,23 @@ impl Evaluator {
                     continue;
                 }
                 self.file = file;
-                if let Some(node) = self.eval_instantiation(inst, statement.span, scope, frame)? {
+                let is_top = self
+                    .top_scope
+                    .as_ref()
+                    .is_some_and(|top| Rc::ptr_eq(top, scope));
+                let prev_root = if is_top {
+                    self.current_root_call
+                        .replace(self.source_ref(statement.span))
+                } else {
+                    self.current_root_call
+                };
+                let inst_res = self.eval_instantiation(inst, statement.span, scope, frame);
+                if is_top {
+                    self.current_root_call = prev_root;
+                }
+                if let Some(node) = inst_res? {
                     // Top-level nodes are kept outside so they survive errors.
-                    if self
-                        .top_scope
-                        .as_ref()
-                        .is_some_and(|top| Rc::ptr_eq(top, scope))
-                    {
+                    if is_top {
                         self.top_nodes.push(node);
                     } else {
                         nodes.push(node);
@@ -735,6 +771,7 @@ impl Evaluator {
             node.modifiers.highlight = inst.modifiers.highlight;
             node.modifiers.background = inst.modifiers.background;
             node.with_source(self.source_ref(span))
+                .with_root_call(self.current_root_call)
         }))
     }
 
