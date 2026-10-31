@@ -2150,6 +2150,9 @@ version = "0.1.0"
 dependencies = [
  "geometry",
  "manifold",
+ "mesh-io",
+ "scad-eval",
+ "scad-font",
  "thiserror 2.0.21",
 ]
 
