@@ -120,6 +120,11 @@ fn print_message(evaluator: &Evaluator, message: &Message) {
     match message.level {
         // Echo output has no location suffix.
         Level::Echo => eprintln!("ECHO: {}", message.text),
-        level => eprintln!("{}: {}{location}", level.label(), message.text),
+        level => {
+            eprintln!("{}: {}{location}", level.label(), message.text);
+            if let Some(extra) = message.continuation {
+                eprintln!("{extra}");
+            }
+        }
     }
 }

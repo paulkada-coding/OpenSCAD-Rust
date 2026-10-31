@@ -215,6 +215,7 @@ impl Evaluator {
             self.messages.push(Message {
                 level,
                 text: msg,
+                continuation: None,
                 file: Some(id),
                 line,
             });
@@ -345,6 +346,16 @@ impl Evaluator {
     // ----------------------------------------------------- diagnostics
 
     pub(crate) fn message(&mut self, level: Level, text: impl Into<String>, span: Option<Span>) {
+        self.message_with_continuation(level, text, None, span);
+    }
+
+    pub(crate) fn message_with_continuation(
+        &mut self,
+        level: Level,
+        text: impl Into<String>,
+        continuation: Option<&'static str>,
+        span: Option<Span>,
+    ) {
         let file = self.file;
         let line = span.and_then(|s| {
             self.files
@@ -354,6 +365,7 @@ impl Evaluator {
         self.messages.push(Message {
             level,
             text: text.into(),
+            continuation,
             file: span.map(|_| file),
             line,
         });
@@ -376,6 +388,7 @@ impl Evaluator {
             self.messages.push(Message {
                 level: Level::Error,
                 text: pre.clone(),
+                continuation: None,
                 file,
                 line,
             });
@@ -383,6 +396,7 @@ impl Evaluator {
         self.messages.push(Message {
             level: Level::Error,
             text: err.message.clone(),
+            continuation: None,
             file,
             line,
         });

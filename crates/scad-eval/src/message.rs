@@ -27,6 +27,9 @@ impl Level {
 pub struct Message {
     pub level: Level,
     pub text: String,
+    /// Optional second line printed verbatim after the `in file ..., line N`
+    /// location suffix (used e.g. by OpenSCAD's color name hint).
+    pub continuation: Option<&'static str>,
     /// File id (index into the evaluator's files) and 1-based line.
     pub file: Option<u32>,
     pub line: Option<u32>,

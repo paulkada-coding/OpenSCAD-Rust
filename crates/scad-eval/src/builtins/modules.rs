@@ -122,7 +122,7 @@ impl<'a> Params<'a> {
     }
 
     fn bool(&self, name: &str, default: bool) -> bool {
-        self.get(name).map_or(default, Value::is_truthy)
+        self.get(name).and_then(Value::as_bool).unwrap_or(default)
     }
 }
 
@@ -274,17 +274,36 @@ pub fn instantiate(
         }
         "polyhedron" => {
             let p = Params::new(args, &["points", "faces", "convexity"]);
-            let points = p
-                .get("points")
-                .and_then(Value::as_list)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_vec::<3>)
-                        .map(DVec3::from_array)
-                        .collect()
-                })
-                .unwrap_or_default();
+            let points_val = p.get("points").unwrap_or(&Value::Undef);
+            let points = match points_val.as_list() {
+                Some(items) => items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| match item.as_vec::<3>() {
+                        Some(pt) => DVec3::from_array(pt),
+                        None => {
+                            ev.warning(
+                                format!(
+                                    "Unable to convert points[{i}] = {} to a vec3 of numbers",
+                                    item.to_repr()
+                                ),
+                                span,
+                            );
+                            DVec3::ZERO
+                        }
+                    })
+                    .collect(),
+                None => {
+                    ev.warning(
+                        format!(
+                            "Unable to convert points = {} to a vector of coordinates",
+                            points_val.to_repr()
+                        ),
+                        span,
+                    );
+                    Vec::new()
+                }
+            };
             let faces = p
                 .get("faces")
                 .or_else(|| p.get("triangles"))
@@ -299,9 +318,21 @@ pub fn instantiate(
         "square" => {
             let p = Params::new(args, &["size", "center"]);
             let size = match p.get("size") {
+                None | Some(Value::Undef) => DVec2::ONE,
                 Some(Value::Number(s)) => DVec2::splat(*s),
-                Some(v) => v.as_vec::<2>().map_or(DVec2::ONE, DVec2::from_array),
-                None => DVec2::ONE,
+                Some(v) => match v.as_vec::<2>() {
+                    Some(s) => DVec2::from_array(s),
+                    None => {
+                        ev.warning(
+                            format!(
+                                "Unable to convert square(size={}, ...) parameter to a number or a vec2 of numbers",
+                                v.to_repr()
+                            ),
+                            span,
+                        );
+                        DVec2::ONE
+                    }
+                },
             };
             leaf(NodeKind::Square {
                 size,
@@ -318,17 +349,36 @@ pub fn instantiate(
         }
         "polygon" => {
             let p = Params::new(args, &["points", "paths", "convexity"]);
-            let points = p
-                .get("points")
-                .and_then(Value::as_list)
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_vec::<2>)
-                        .map(DVec2::from_array)
-                        .collect()
-                })
-                .unwrap_or_default();
+            let points_val = p.get("points").unwrap_or(&Value::Undef);
+            let points = match points_val.as_list() {
+                Some(items) => items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| match item.as_vec::<2>() {
+                        Some(pt) => DVec2::from_array(pt),
+                        None => {
+                            ev.warning(
+                                format!(
+                                    "Unable to convert points[{i}] = {} to a vec2 of numbers",
+                                    item.to_repr()
+                                ),
+                                span,
+                            );
+                            DVec2::ZERO
+                        }
+                    })
+                    .collect(),
+                None => {
+                    ev.warning(
+                        format!(
+                            "Unable to convert points = {} to a vector of coordinates",
+                            points_val.to_repr()
+                        ),
+                        span,
+                    );
+                    Vec::new()
+                }
+            };
             leaf(NodeKind::Polygon {
                 points,
                 paths: p.get("paths").filter(|v| !v.is_undef()).map(index_lists),
@@ -337,38 +387,73 @@ pub fn instantiate(
         }
         "translate" => {
             let p = Params::new(args, &["v"]);
-            // Adding to zero turns -0 into 0, as OpenSCAD's matrix sum does.
-            let v = p.get("v").and_then(vec3_lenient).unwrap_or(DVec3::ZERO) + DVec3::ZERO;
+            let v_val = p.get("v").unwrap_or(&Value::Undef);
+            let v = match vec3_lenient(v_val) {
+                Some(v) => v + DVec3::ZERO,
+                None => {
+                    ev.warning(
+                        format!(
+                            "Unable to convert translate({}) parameter to a vec3 or vec2 of numbers",
+                            v_val.to_repr()
+                        ),
+                        span,
+                    );
+                    DVec3::ZERO
+                }
+            };
             node(NodeKind::Multmatrix(DMat4::from_translation(v)), children)
         }
         "rotate" => {
             let p = Params::new(args, &["a", "v"]);
             node(
-                NodeKind::Multmatrix(rotation(p.get("a"), p.get("v"))),
+                NodeKind::Multmatrix(rotation_checked(ev, p.get("a"), p.get("v"), span)),
                 children,
             )
         }
         "scale" => {
             let p = Params::new(args, &["v"]);
-            let v = match p.get("v") {
-                Some(Value::Number(s)) => DVec3::splat(*s),
-                Some(v) => vec3_lenient(v)
-                    .map(|s| {
+            let v_val = p.get("v").unwrap_or(&Value::Undef);
+            let v = match v_val {
+                Value::Number(s) => DVec3::splat(*s),
+                other => match vec3_lenient(other) {
+                    Some(s) => {
                         // A 2-vector leaves z unscaled.
-                        if v.as_list().is_some_and(|l| l.len() == 2) {
+                        if other.as_list().is_some_and(|l| l.len() == 2) {
                             DVec3::new(s.x, s.y, 1.0)
                         } else {
                             s
                         }
-                    })
-                    .unwrap_or(DVec3::ONE),
-                None => DVec3::ONE,
+                    }
+                    None => {
+                        ev.warning(
+                            format!(
+                                "Unable to convert scale({}) parameter to a number or a vec3 or vec2 of numbers",
+                                other.to_repr()
+                            ),
+                            span,
+                        );
+                        DVec3::ONE
+                    }
+                },
             };
-            node(NodeKind::Multmatrix(DMat4::from_scale(v)), children)
+            node(NodeKind::Multmatrix(scale_matrix(v)), children)
         }
         "mirror" => {
             let p = Params::new(args, &["v"]);
-            let n = p.get("v").and_then(vec3_lenient).unwrap_or(DVec3::X);
+            let v_val = p.get("v").unwrap_or(&Value::Undef);
+            let n = match vec3_lenient(v_val) {
+                Some(n) => n,
+                None => {
+                    ev.warning(
+                        format!(
+                            "Unable to convert mirror({}) parameter to a vec3 or vec2 of numbers",
+                            v_val.to_repr()
+                        ),
+                        span,
+                    );
+                    DVec3::X
+                }
+            };
             node(NodeKind::Multmatrix(mirror(n)), children)
         }
         "multmatrix" => {
@@ -383,13 +468,30 @@ pub fn instantiate(
                 Some(Value::String(s)) => match parse_color(s) {
                     Some(c) => c,
                     None => {
-                        ev.warning(format!("Unable to parse color \"{s}\""), span);
+                        ev.message_with_continuation(
+                            crate::message::Level::Warning,
+                            format!("Unable to parse color \"{s}\""),
+                            Some(
+                                "For a list of valid color names, see the <a href=\"open-window://colorlist\"><b>Color List</b></a> window.",
+                            ),
+                            Some(span),
+                        );
                         [-1.0; 4]
                     }
                 },
                 // Missing channels default to 1.
                 Some(v) => match v.as_list() {
                     Some(items) if !items.is_empty() => {
+                        for x in items.iter().take(4).filter_map(Value::as_number) {
+                            if !(0.0..=1.0).contains(&x) {
+                                ev.warning(
+                                    format!(
+                                        "color() expects numbers between 0.0 and 1.0. Value of {x:.1} is out of range"
+                                    ),
+                                    span,
+                                );
+                            }
+                        }
                         let c = |i: usize| items.get(i).and_then(Value::as_number).unwrap_or(1.0);
                         [c(0), c(1), c(2), c(3)]
                     }
@@ -398,6 +500,14 @@ pub fn instantiate(
                 None => [-1.0; 4],
             };
             if let Some(alpha) = alpha {
+                if !(0.0..=1.0).contains(&alpha) {
+                    ev.warning(
+                        format!(
+                            "color() expects alpha between 0.0 and 1.0. Value of {alpha:.1} is out of range"
+                        ),
+                        span,
+                    );
+                }
                 rgba[3] = alpha;
             }
             node(NodeKind::Color { rgba }, children)
@@ -596,6 +706,39 @@ fn vec3_lenient(value: &Value) -> Option<DVec3> {
     value.as_vec::<2>().map(|[x, y]| DVec3::new(x, y, 0.0))
 }
 
+fn rotation_checked(ev: &mut Evaluator, a: Option<&Value>, v: Option<&Value>, span: Span) -> DMat4 {
+    match a {
+        Some(Value::Number(_)) => {
+            if let Some(v_val) = v
+                && !v_val.is_undef()
+                && vec3_lenient(v_val).is_none()
+            {
+                ev.warning(
+                    format!(
+                        "Problem converting rotate(..., v={}) parameter",
+                        v_val.to_repr()
+                    ),
+                    span,
+                );
+            }
+            rotation(a, v)
+        }
+        Some(Value::List(items))
+            if (1..=3).contains(&items.len()) && items.iter().all(|x| x.as_number().is_some()) =>
+        {
+            rotation(a, v)
+        }
+        other => {
+            let repr = other.unwrap_or(&Value::Undef).to_repr();
+            ev.warning(
+                format!("Problem converting rotate(a={repr}) parameter"),
+                span,
+            );
+            DMat4::IDENTITY
+        }
+    }
+}
+
 /// `rotate(a)`, `rotate([x, y, z])` and `rotate(a, v)`.
 fn rotation(a: Option<&Value>, v: Option<&Value>) -> DMat4 {
     let axis_angle = |angle: f64, axis: DVec3| -> DMat4 {
@@ -606,21 +749,21 @@ fn rotation(a: Option<&Value>, v: Option<&Value>) -> DMat4 {
         let t = 1.0 - c;
         DMat4::from_cols(
             DVec4::new(
-                t * u.x * u.x + c,
-                t * u.x * u.y + s * u.z,
-                t * u.x * u.z - s * u.y,
+                (t * u.x * u.x + c) + 0.0,
+                (t * u.x * u.y + s * u.z) + 0.0,
+                (t * u.x * u.z - s * u.y) + 0.0,
                 0.0,
             ),
             DVec4::new(
-                t * u.x * u.y - s * u.z,
-                t * u.y * u.y + c,
-                t * u.y * u.z + s * u.x,
+                (t * u.x * u.y - s * u.z) + 0.0,
+                (t * u.y * u.y + c) + 0.0,
+                (t * u.y * u.z + s * u.x) + 0.0,
                 0.0,
             ),
             DVec4::new(
-                t * u.x * u.z + s * u.y,
-                t * u.y * u.z - s * u.x,
-                t * u.z * u.z + c,
+                (t * u.x * u.z + s * u.y) + 0.0,
+                (t * u.y * u.z - s * u.x) + 0.0,
+                (t * u.z * u.z + c) + 0.0,
                 0.0,
             ),
             DVec4::W,
@@ -639,21 +782,68 @@ fn rotation(a: Option<&Value>, v: Option<&Value>) -> DMat4 {
                     0.0,
                 )
             });
-            // Rotate about X, then Y, then Z.
-            axis_angle(angles.z, DVec3::Z)
-                * axis_angle(angles.y, DVec3::Y)
-                * axis_angle(angles.x, DVec3::X)
+            let (sx, cx) = (sin_degrees(angles.x), cos_degrees(angles.x));
+            let (sy, cy) = (sin_degrees(angles.y), cos_degrees(angles.y));
+            let (sz, cz) = (sin_degrees(angles.z), cos_degrees(angles.z));
+            let m00 = cy * cz;
+            let m10 = sz * cy + cz * 0.0;
+            let m20 = if sy == 0.0 { cz * 0.0 + sz * 0.0 } else { -sy };
+            DMat4::from_cols(
+                DVec4::new(m00, m10, m20, 0.0),
+                DVec4::new(
+                    (cz * sx * sy - cx * sz) + 0.0,
+                    (cx * cz + sx * sy * sz) + 0.0,
+                    (cy * sx) + 0.0,
+                    0.0,
+                ),
+                DVec4::new(
+                    (cx * cz * sy + sx * sz) + 0.0,
+                    (-cz * sx + cx * sy * sz) + 0.0,
+                    (cx * cy) + 0.0,
+                    0.0,
+                ),
+                DVec4::W,
+            )
         }
         _ => DMat4::IDENTITY,
     }
 }
 
+fn scale_matrix(v: DVec3) -> DMat4 {
+    DMat4::from_cols(
+        DVec4::new(1.0 * v.x, 0.0 * v.x, 0.0 * v.x, 0.0),
+        DVec4::new(0.0 * v.y, 1.0 * v.y, 0.0 * v.y, 0.0),
+        DVec4::new(0.0 * v.z, 0.0 * v.z, 1.0 * v.z, 0.0),
+        DVec4::W,
+    )
+}
+
 fn mirror(n: DVec3) -> DMat4 {
-    let Some(n) = n.try_normalize() else {
+    let sq = n.length_squared();
+    if sq == 0.0 {
         return DMat4::IDENTITY;
-    };
-    let col = |axis: DVec3| (axis - 2.0 * n * n.dot(axis)).extend(0.0);
-    DMat4::from_cols(col(DVec3::X), col(DVec3::Y), col(DVec3::Z), DVec4::W)
+    }
+    DMat4::from_cols(
+        DVec4::new(
+            1.0 - 2.0 * n.x * n.x / sq,
+            -2.0 * n.y * n.x / sq,
+            -2.0 * n.z * n.x / sq,
+            0.0,
+        ),
+        DVec4::new(
+            -2.0 * n.x * n.y / sq,
+            1.0 - 2.0 * n.y * n.y / sq,
+            -2.0 * n.z * n.y / sq,
+            0.0,
+        ),
+        DVec4::new(
+            -2.0 * n.x * n.z / sq,
+            -2.0 * n.y * n.z / sq,
+            1.0 - 2.0 * n.z * n.z / sq,
+            0.0,
+        ),
+        DVec4::W,
+    )
 }
 
 /// A row-major 4Ã—4 (or 3Ã—4) nested list as a matrix.
