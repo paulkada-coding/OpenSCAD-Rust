@@ -5,12 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-fontdb = "0.24.0"
 geometry = { version = "0.1.0", path = "../geometry" }
 rustc-hash = "2.1.3"
-rustybuzz = "0.20.1"
+scad-font = { version = "0.1.0", path = "../scad-font" }
 scad-syntax = { version = "0.1.0", path = "../scad-syntax" }
-skrifa = "0.49.0"
 stacker = "0.1.25"
 
 [lints]
