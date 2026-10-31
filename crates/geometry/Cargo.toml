@@ -1,0 +1,11 @@
+[package]
+name = "geometry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+glam = "0.34.1"
+
+[lints]
+workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "mesh-io"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+geometry = { version = "0.1.0", path = "../geometry" }
+thiserror = "2.0.21"
+
+[lints]
+workspace = true
