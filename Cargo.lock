@@ -2145,6 +2145,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mesher"
+version = "0.1.0"
+dependencies = [
+ "geometry",
+ "manifold",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

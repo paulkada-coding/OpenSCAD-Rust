@@ -1,0 +1,14 @@
+[package]
+name = "mesher"
+description = "Turns the evaluated CSG tree into meshes with the Manifold kernel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+geometry = { version = "0.1.0", path = "../geometry" }
+manifold = { version = "0.1.0", path = "../manifold" }
+thiserror = "2.0.21"
+
+[lints]
+workspace = true
