@@ -94,7 +94,11 @@ fn round_significant(n: f64, ties_to_even: bool) -> (String, i32) {
     let exact = format!("{n:.40e}");
     let (mantissa, exponent) = exact.split_once('e').expect("exponent format");
     let mut exponent: i32 = exponent.parse().expect("integer exponent");
-    let all: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).map(|b| b - b'0').collect();
+    let all: Vec<u8> = mantissa
+        .bytes()
+        .filter(u8::is_ascii_digit)
+        .map(|b| b - b'0')
+        .collect();
 
     let mut kept = all[..PRECISION].to_vec();
     let rest = &all[PRECISION..];

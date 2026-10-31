@@ -84,7 +84,10 @@ fn parse_args() -> Result<Options, String> {
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        let mut value = |name: &str| args.next().ok_or_else(|| format!("missing value for {name}"));
+        let mut value = |name: &str| {
+            args.next()
+                .ok_or_else(|| format!("missing value for {name}"))
+        };
         match a.as_str() {
             "--engine" => o.engine = PathBuf::from(value("--engine")?),
             "--openscad" => o.openscad = PathBuf::from(value("--openscad")?),
@@ -140,7 +143,11 @@ fn discover_cases(o: &Options) -> Result<Vec<Case>, String> {
         if path.extension().and_then(|e| e.to_str()) != Some("scad") {
             continue;
         }
-        let Some(name) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+        let Some(name) = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(str::to_string)
+        else {
             continue;
         };
         if !o.filters.is_empty() && !o.filters.iter().any(|f| name.contains(f.as_str())) {
@@ -178,7 +185,12 @@ struct RawRun {
 
 /// Runs `<exe> -o <out_dir>/<name>.csg [extra args] <name>.scad` in the
 /// case directory, with a timeout.
-fn run_binary(exe: &Path, case: &Case, out_dir: &Path, timeout: Duration) -> Result<RawRun, String> {
+fn run_binary(
+    exe: &Path,
+    case: &Case,
+    out_dir: &Path,
+    timeout: Duration,
+) -> Result<RawRun, String> {
     std::fs::create_dir_all(out_dir)
         .map_err(|e| format!("cannot create {}: {e}", out_dir.display()))?;
     let csg_path = out_dir.join(format!("{}.csg", case.name));
@@ -302,7 +314,10 @@ fn check_case(o: &Options, case: &Case) -> Outcome {
         return outcome;
     }
     let act_log = normalize::normalize_log(&run.stderr, case_dir);
-    let act_csg = run.csg.as_deref().map(|b| normalize::normalize_csg(b, case_dir));
+    let act_csg = run
+        .csg
+        .as_deref()
+        .map(|b| normalize::normalize_csg(b, case_dir));
     // Save the normalized actual output next to the raw output for inspection.
     let norm_dir = o.out_dir.join("engine");
     let _ = std::fs::write(norm_dir.join(format!("{}.log", case.name)), &act_log);
@@ -365,7 +380,10 @@ fn update_case(o: &Options, case: &Case) -> Outcome {
         return outcome;
     }
     let log = normalize::normalize_log(&run.stderr, case_dir);
-    let csg = run.csg.as_deref().map(|b| normalize::normalize_csg(b, case_dir));
+    let csg = run
+        .csg
+        .as_deref()
+        .map(|b| normalize::normalize_csg(b, case_dir));
     let log_path = o.expected_dir.join(format!("{}.log", case.name));
     let csg_path = o.expected_dir.join(format!("{}.csg", case.name));
     let mut changes = Vec::new();
@@ -447,7 +465,10 @@ fn run_parallel(o: &Arc<Options>, cases: Vec<Case>) -> Vec<Outcome> {
     }
     let mut results = match Arc::try_unwrap(results) {
         Ok(m) => m.into_inner().unwrap_or_default(),
-        Err(arc) => arc.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default(),
+        Err(arc) => arc
+            .lock()
+            .map(|mut v| std::mem::take(&mut *v))
+            .unwrap_or_default(),
     };
     results.sort_by(|a, b| a.name.cmp(&b.name));
     results
@@ -524,7 +545,11 @@ fn main() -> ExitCode {
         }
     };
     if cases.is_empty() {
-        eprintln!("no cases found in {} (filter: {:?})", o.cases_dir.display(), o.filters);
+        eprintln!(
+            "no cases found in {} (filter: {:?})",
+            o.cases_dir.display(),
+            o.filters
+        );
         return ExitCode::from(1);
     }
     if o.update {

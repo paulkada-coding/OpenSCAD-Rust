@@ -66,7 +66,9 @@ impl Scope {
     }
 
     pub fn define_module(&self, def: Rc<ModuleDef>, file: u32) {
-        self.modules.borrow_mut().insert(def.name.clone(), (def, file));
+        self.modules
+            .borrow_mut()
+            .insert(def.name.clone(), (def, file));
     }
 
     pub fn add_used(&self, library: Rc<Scope>) {

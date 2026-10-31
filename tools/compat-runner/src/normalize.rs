@@ -123,7 +123,9 @@ fn strip_dir(text: &str, case_dir: &Path) -> String {
     let fwd = dir.replace('\\', "/");
     let mut s = text.to_string();
     for d in [&back, &fwd] {
-        s = s.replace(&format!("{d}\\"), "").replace(&format!("{d}/"), "");
+        s = s
+            .replace(&format!("{d}\\"), "")
+            .replace(&format!("{d}/"), "");
     }
     s
 }

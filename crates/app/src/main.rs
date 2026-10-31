@@ -17,7 +17,8 @@ const USAGE: &str =
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(
         // wgpu_hal at warn level reports harmless Vulkan loader registry noise.
-        env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=error,naga=warn"),
+        env_logger::Env::default()
+            .default_filter_or("info,wgpu_core=warn,wgpu_hal=error,naga=warn"),
     )
     .init();
 
