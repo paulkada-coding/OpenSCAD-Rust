@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "exit_code": 0,
+  "top_level": null,
+  "log": "ECHO: \"porta carte v2.7\"\nECHO: \"scatola   106 x 70 x 60 mm, carte orizzontale, 1 file\"\nECHO: \"  10 denti: 9 posizioni per fila, 64 mm per le carte\"\nECHO: \"coperchio 110.5 x 74.5 x 40 mm, calza sulla base per 10 mm e sporge di 2.25 per lato (gioco 0.25)\"\nECHO: \"chiuso    90 mm di altezza\"\nECHO: \"tenuta    2 tratti da 60 mm sui lati col pettine: gioco a fine corsa -0.3 per lato (negativo = preme), nominale 0.25\"\nECHO: \"taratura  anelli con SERRAGGIO [0.2, 0.25, 0.3, 0.35, 0.4] (valore inciso all'interno); scegliere quello su cui il coperchio chiude con un leggero attrito\"\nECHO: \"CONTROLLO orizzontale luce 94 cave z 20-50 cima linguetta z 86 piedino true rampa 45 v2.7\"\nECHO: \"rampe     45 gradi, alte 3 mm in fondo a ogni cava\"\n",
+  "geometry": {
+    "triangles": 13810,
+    "vertices": 6905,
+    "volume": 66633.31547379102,
+    "area": 59569.42476493287,
+    "bbox_min": [-0.6499999985098839, 0, 0],
+    "bbox_max": [226.5, 234.5, 12],
+    "manifold": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "degenerate_triangles": 0,
+    "components": 6,
+    "euler": 0,
+    "genus": 1,
+    "vertex_hash": "fnv1a64:3bcf21cf512bede6",
+    "triangle_hash": "fnv1a64:e9c4b9eb0508d2d2"
+  }
+}

@@ -10,10 +10,15 @@ Casi di test piccoli e deterministici che confrontano il nostro motore (`scadr`)
 Il comportamento osservato è documentato in dettaglio in
 [`docs/openscad-behavior.md`](../../docs/openscad-behavior.md).
 
+Il confronto della **geometria** renderizzata (export STL, metriche volume/area/box/vertici, esiti
+`EXACT` / `EQUIVALENT` / `FAIL`) ha un corpus separato di 100 casi in
+[`geometry/`](geometry/README.md), eseguito con `cargo run -p compat-runner -- --geometry`.
+
 ## Struttura
 
 ```
 tests/compat/
+  geometry/                        corpus di geometria (vedi geometry/README.md)
   cases/<argomento>_<nome>.scad   un caso per file (solo i .scad al primo livello sono casi)
   cases/lib/                       librerie di supporto per include/use (non sono casi)
   cases/data/                      file dati per import()/surface() (non sono casi)

@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "exit_code": 0,
+  "top_level": null,
+  "log": "ECHO: \"porta carte v2.7\"\nECHO: \"separatore 99.4 x 83.3 x 1.7 mm, carte orizzontale\"\nECHO: \"  linguetta 1 di 3: base 28.3333, cima 21.9026, sporge 14 mm sopra le carte\"\nECHO: \"  scritta 17.9026 mm di larghezza, alta circa 4.77401 mm\"\nECHO: \"  finestra 73 x 50 mm, x\"\nECHO: \"  alette a filo con la cima delle guide (z 50) a separatore inserito a fondo\"\nECHO: \"  alette nelle cave per 29 mm (bordo inferiore rialzato di 2.7 mm sul lato parete, come la rampa)\"\nECHO: \"CONTROLLO orizzontale luce 94 cave z 20-50 cima linguetta z 86 piedino true rampa 45 v2.7\"\n",
+  "geometry": {
+    "triangles": 5636,
+    "vertices": 2812,
+    "volume": 6958.46359803019,
+    "area": 9608.695614012106,
+    "bbox_min": [0, 0, 0],
+    "bbox_max": [99.39999999850988, 83.29999999701977, 2.3],
+    "manifold": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "degenerate_triangles": 0,
+    "components": 1,
+    "euler": -6,
+    "genus": 4,
+    "vertex_hash": "fnv1a64:69539d742ee47748",
+    "triangle_hash": "fnv1a64:589a80fb554dea37"
+  }
+}

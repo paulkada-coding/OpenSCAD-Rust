@@ -1,0 +1,33 @@
+{
+  "format": 1,
+  "exit_code": 0,
+  "top_level": null,
+  "log": "ERROR: Assertion 'false' failed: \"stop here\" in file cli_eval_error_partial.scad, line 3\nTRACE: called by 'assert' in file cli_eval_error_partial.scad, line 3\n",
+  "geometry": {
+    "triangles": 12,
+    "vertices": 8,
+    "volume": 125,
+    "area": 150,
+    "bbox_min": [0, 0, 0],
+    "bbox_max": [5, 5, 5],
+    "manifold": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "degenerate_triangles": 0,
+    "components": 1,
+    "euler": 2,
+    "genus": 0,
+    "vertex_hash": "fnv1a64:f8880edc96cb0f91",
+    "triangle_hash": "fnv1a64:458385c660ff7bc9",
+    "vertex_list": [
+      [0, 0, 0],
+      [0, 0, 5],
+      [0, 5, 0],
+      [0, 5, 5],
+      [5, 0, 0],
+      [5, 0, 5],
+      [5, 5, 0],
+      [5, 5, 5]
+    ]
+  }
+}
