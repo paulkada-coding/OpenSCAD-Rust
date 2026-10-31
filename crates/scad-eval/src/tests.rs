@@ -276,3 +276,52 @@ fn source_cache_reuses_parsed_library_and_invalidates_on_change() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn fuzz_live_editing_and_mutated_programs_never_panic() {
+    let program = r##"
+obj = object(a = 1, [["b", [10, 20, 30, 40]]]);
+v = obj.b.zyx;
+f = function(n) n <= 0 ? 1 : f(n - 1);
+module shape(s = 2) {
+    color("#ff00aa80")
+    translate([1, 2, 3])
+    rotate([90, 0, 180])
+    scale([-0, 1, 2])
+    mirror([1, 1, 0])
+        linear_extrude(height = s)
+            offset(r = 0.5)
+                text("Hi", size = 6, halign = "center");
+}
+echo(f(4), v, has_key(obj, "a"), textmetrics("a"), fontmetrics(10));
+shape();
+"##;
+    let opts = EvalOptions {
+        object_function: true,
+        vector_swizzle: true,
+        import_function: true,
+        ..EvalOptions::default()
+    };
+
+    for idx in 0..=program.len() {
+        if !program.is_char_boundary(idx) {
+            continue;
+        }
+        let prefix = &program[..idx];
+        let mut ev = Evaluator::new(opts.clone());
+        let _ = ev.run(Path::new("live.scad"), prefix);
+    }
+
+    const SNIPPETS: &[&str] = &[
+        "echo(1/0, 0/0, -1/0, (1/0) % 2, pow(-2, 0.5));",
+        "echo([1, 2].rgba, [1].w, object(123), has_key(1, 2));",
+        "echo(search([1], \"abc\", 0, 99), rands(10, -10, -5, 1e50));",
+        "echo(textmetrics(123, size = -5, direction = \"ttb\"), fontmetrics(-1, 99));",
+        "color(\"#12345\") translate(\"bad\") rotate([1, \"x\"]) scale([]) mirror([0,0,0]) cube(\"x\");",
+        "polygon(points = [[1], \"a\"], paths = [[-1, 99]]); polyhedron(points = 1, faces = [[0]]);",
+    ];
+    for &snippet in SNIPPETS {
+        let mut ev = Evaluator::new(opts.clone());
+        let _ = ev.run(Path::new("edge.scad"), snippet);
+    }
+}

@@ -290,3 +290,120 @@ fn lexer_warnings_and_overflow_losslessness() {
         Some(UnterminatedKind::String)
     );
 }
+
+#[test]
+fn live_typing_prefixes_preserve_lossless_cst_and_never_panic() {
+    let rich_program = r#"
+include <a/b.scad>
+use <c/d.scad>
+/* multi-line
+   comment with UTF-8: Привет 日本 مرحبا */
+fn_lit = function(x, y = [1:0.5:3]) let(z = x * 2) [for (i = y) if (i > 1) each [i, z] else 0];
+module part(n = 4, label = "a\nb\x41\u00df\U0001f600\q") {
+    for (k = [0 : 1 : n - 1]) {
+        #!translate([k * 2.5, -0.0, 1e400 + 0x1f])
+            difference() {
+                cube([1, 2, 3], center = true);
+                sphere(r = 0.5, $fn = 12);
+            }
+    }
+}
+part(2);
+"#;
+    for idx in 0..=rich_program.len() {
+        if !rich_program.is_char_boundary(idx) {
+            continue;
+        }
+        let prefix = &rich_program[..idx];
+        let parsed = parse(prefix);
+        assert_eq!(parsed.syntax().to_string(), prefix);
+        let _ast = parsed.tree();
+    }
+}
+
+#[test]
+fn fuzz_random_token_soups_and_deep_nesting_never_panic() {
+    const TOKENS: &[&str] = &[
+        "(",
+        ")",
+        "[",
+        "]",
+        "{",
+        "}",
+        ";",
+        ",",
+        ":",
+        "?",
+        "=",
+        "==",
+        "!=",
+        "<=",
+        ">=",
+        "&&",
+        "||",
+        "+",
+        "-",
+        "*",
+        "/",
+        "%",
+        "^",
+        "!",
+        "~",
+        "<<",
+        ">>",
+        ".",
+        "$fn",
+        "module",
+        "function",
+        "include",
+        "use",
+        "if",
+        "else",
+        "for",
+        "let",
+        "each",
+        "true",
+        "false",
+        "undef",
+        "0x1A",
+        "0XFF",
+        "2abc",
+        "1e500",
+        "9007199254740993",
+        "\"unterm",
+        "\"\\x1\\u12\\U123\\0\"",
+        "/*",
+        "*/",
+        "//\n",
+        "<a/b>",
+        "\0",
+        "مرحبا",
+    ];
+    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next_u64 = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+
+    for _ in 0..1000 {
+        let len = (next_u64() % 32) as usize;
+        let mut s = String::new();
+        for _ in 0..len {
+            let tok = TOKENS[(next_u64() as usize) % TOKENS.len()];
+            s.push_str(tok);
+            if next_u64() & 3 == 0 {
+                s.push(' ');
+            }
+        }
+        let parsed = parse(&s);
+        assert_eq!(parsed.syntax().to_string(), s);
+        let _ast = parsed.tree();
+    }
+
+    let deep_expr = format!("x = {}1{};", "(".repeat(120), ")".repeat(120));
+    let parsed = parse(&deep_expr);
+    assert_eq!(parsed.syntax().to_string(), deep_expr);
+    let _ast = parsed.tree();
+}
