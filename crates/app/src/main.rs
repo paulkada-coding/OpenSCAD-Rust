@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod settings;
 mod viewport;
 
 use std::path::PathBuf;
@@ -45,6 +46,8 @@ fn run_gui(initial: Option<PathBuf>) -> anyhow::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(APP_TITLE)
+            // Folder name for saved settings and window state.
+            .with_app_id("openscad-rust")
             .with_inner_size([1400.0, 900.0])
             .with_min_inner_size([640.0, 400.0])
             .with_drag_and_drop(true),

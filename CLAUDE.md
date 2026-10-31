@@ -24,6 +24,7 @@ Predisposta per: modellazione 3D diretta e assistente AI (Claude / Gemini) integ
 | 2026-10-31 | Solo Windows per ora; codice portabile per macOS/Linux | Evitare API specifiche di Windows fuori da moduli isolati |
 | 2026-10-31 | Visual Studio Build Tools **2022** (non 2026) | Massima compatibilità con l'ecosistema Rust/CMake; la 2026 non porta vantaggi per noi |
 | 2026-10-31 | OpenSCAD ufficiale (Nightly) usato **solo come oracolo di test** | Confronto automatico dei risultati per misurare la compatibilità |
+| 2026-10-31 | Frequenza fotogrammi **costante** di default (Impostazioni → Schermo), "su richiesta" opzionale | Con G-Sync/VRR i fotogrammi irregolari fanno variare la frequenza del monitor e gli OLED dell'utente sfarfallano |
 
 ## Stack
 
@@ -56,7 +57,7 @@ crates/
   mesh-io/       STL lettura (binario/ASCII) e scrittura; poi 3MF/OBJ, import SVG/DXF
   render/        Scene wgpu offscreen (MSAA 4x, sRGB), OrbitCamera Z-up, rendering headless → PNG
   ai/            (da fare) provider Claude/Gemini, strumenti
-  app/           UI egui: menu, pannello modello, viewport, barra di stato
+  app/           UI egui: menu, pannello modello, viewport, barra di stato, impostazioni persistenti
 tools/
   compat-runner/ confronto automatico parallelo con gli output attesi di OpenSCAD Nightly
 examples/        file .scad di prova (+ STL generati con OpenSCAD)
@@ -121,6 +122,14 @@ Principi:
   (`-D nome`), un `-D` non valido produce `WARNING: Ignoring invalid definition` invece di essere
   ignorato in silenzio, e i messaggi generati dentro un `-D` puntano al `-D` e non al file principale.
   Prossimo passo: milestone 3.
+- 2026-10-31: test dell'utente. I suoi `examples/porta_carte.scad` e `examples/separatore.scad`
+  (progetto reale: offset, hull, linear_extrude, text+resize) danno output identico a OpenSCAD;
+  aggiunti al corpus come `model_porta_carte` / `model_separatore` (**217/217**).
+  Segnalato flicker su monitor OLED con G-Sync: aggiunta finestra **File → Impostazioni** con
+  "Frequenza dei fotogrammi" costante (default) / su richiesta, salvata con la persistenza di
+  eframe in `%APPDATA%\openscad-rust\data\app.ron` (insieme a finestra e pannelli). Verificato:
+  a riposo "costante" ridisegna di continuo, "su richiesta" consuma 0 CPU; caricamento e
+  salvataggio funzionano. Il flicker sul monitor dell'utente va confermato da lui.
 
 ## Note per le prossime milestone
 

@@ -1,0 +1,113 @@
+group();
+group();
+group() {
+	linear_extrude(height = 1.7, $fn = 64, $fa = 12, $fs = 2) {
+		group() {
+			difference() {
+				union() {
+					group() {
+						hull() {
+							group() {
+								multmatrix([[1, 0, 0, 13.2], [0, 1, 0, 11.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+									circle($fn = 64, $fa = 12, $fs = 2, r = 10);
+								}
+								multmatrix([[1, 0, 0, 86.2], [0, 1, 0, 11.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+									circle($fn = 64, $fa = 12, $fs = 2, r = 10);
+								}
+							}
+							group() {
+								multmatrix([[1, 0, 0, 7.2], [0, 1, 0, 67.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+									circle($fn = 64, $fa = 12, $fs = 2, r = 4);
+								}
+								multmatrix([[1, 0, 0, 92.2], [0, 1, 0, 67.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+									circle($fn = 64, $fa = 12, $fs = 2, r = 4);
+								}
+							}
+						}
+					}
+					group() {
+						polygon(points = [[0, 47.3], [0, 21], [2.7, 18.3], [3.7, 18.3], [3.7, 47.3]], paths = undef, convexity = 1);
+					}
+					multmatrix([[1, 0, 0, 99.4], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+						multmatrix([[-1, -0, -0, 0], [-0, 1, -0, 0], [-0, -0, 1, 0], [0, 0, 0, 1]]) {
+							group() {
+								polygon(points = [[0, 47.3], [0, 21], [2.7, 18.3], [3.7, 18.3], [3.7, 47.3]], paths = undef, convexity = 1);
+							}
+						}
+					}
+					group() {
+						polygon(points = [[45.7, 0], [53.7, 0], [55, 1.32], [44.4, 1.32]], paths = undef, convexity = 1);
+					}
+					group() {
+						offset(r = -3, $fn = 64, $fa = 12, $fs = 2) {
+							offset(delta = 3, chamfer = false, $fn = 64, $fa = 12, $fs = 2) {
+								union() {
+									group() {
+										offset(r = 2, $fn = 64, $fa = 12, $fs = 2) {
+											offset(delta = -2, chamfer = false, $fn = 64, $fa = 12, $fs = 2) {
+												polygon(points = [[6.1282, 67.3], [10.4154, 83.3], [32.3179, 83.3], [36.6051, 67.3]], paths = undef, convexity = 1);
+											}
+										}
+									}
+									multmatrix([[1, 0, 0, 7.2], [0, 1, 0, 67.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+										square(size = [85, 4], center = false);
+									}
+								}
+							}
+						}
+					}
+				}
+				group() {
+					group() {
+						offset(r = 3, $fn = 64, $fa = 12, $fs = 2) {
+							offset(r = -3, $fn = 64, $fa = 12, $fs = 2) {
+								difference() {
+									group() {
+										multmatrix([[1, 0, 0, 16.2], [0, 1, 0, 14.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+											offset(r = 3, $fn = 64, $fa = 12, $fs = 2) {
+												square(size = [67, 44], center = false);
+											}
+										}
+									}
+									group() {
+										group() {
+											group() {
+												hull() {
+													multmatrix([[1, 0, 0, 13.2], [0, 1, 0, 11.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+														circle($fn = 64, $fa = 12, $fs = 2, r = 2);
+													}
+													multmatrix([[1, 0, 0, 86.2], [0, 1, 0, 61.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+														circle($fn = 64, $fa = 12, $fs = 2, r = 2);
+													}
+												}
+											}
+											group() {
+												hull() {
+													multmatrix([[1, 0, 0, 13.2], [0, 1, 0, 61.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+														circle($fn = 64, $fa = 12, $fs = 2, r = 2);
+													}
+													multmatrix([[1, 0, 0, 86.2], [0, 1, 0, 11.3], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+														circle($fn = 64, $fa = 12, $fs = 2, r = 2);
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	group() {
+		multmatrix([[1, 0, 0, 21.3667], [0, 1, 0, 77.3], [0, 0, 1, 1.7], [0, 0, 0, 1]]) {
+			linear_extrude(height = 0.6, $fn = 64, $fa = 12, $fs = 2) {
+				resize(newsize = [17.9026,0,0], auto = [1,1,1], convexity = 0) {
+					text(text = "ROSSO", size = 8, spacing = 1, font = "", direction = "ltr", language = "en", script = "Latn", halign = "center", valign = "center", $fn = 64, $fa = 12, $fs = 2);
+				}
+			}
+		}
+	}
+}

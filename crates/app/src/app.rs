@@ -10,6 +10,7 @@ use geometry::{Aabb, Mesh};
 use mesh_io::StlFormat;
 use render::{Projection, ViewPreset};
 
+use crate::settings::{self, FrameRate, Settings};
 use crate::viewport::Viewport;
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
@@ -41,6 +42,8 @@ pub struct ViewerApp {
     loading: Option<PendingLoad>,
     status: Status,
     gpu_name: String,
+    settings: Settings,
+    settings_open: bool,
 }
 
 impl ViewerApp {
@@ -60,6 +63,8 @@ impl ViewerApp {
             loading: None,
             status: Status::Info("Pronto".into()),
             gpu_name,
+            settings: Settings::load(cc.storage),
+            settings_open: false,
         };
         if let Some(path) = initial {
             app.start_loading(path, &cc.egui_ctx);
@@ -208,6 +213,10 @@ impl ViewerApp {
                     self.export_dialog(StlFormat::Ascii);
                 }
                 ui.separator();
+                if ui.button("Impostazioni…").clicked() {
+                    self.settings_open = true;
+                }
+                ui.separator();
                 if ui.button("Esci").clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -320,6 +329,22 @@ impl eframe::App for ViewerApp {
         self.handle_dropped_files(&ctx);
         self.handle_shortcuts(&ctx);
 
+        // With vsync on, this presents exactly once per monitor refresh.
+        if self.settings.frame_rate == FrameRate::Constant {
+            ctx.request_repaint();
+        }
+
+        let mut open = self.settings_open;
+        egui::Window::new("Impostazioni")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(420.0)
+            .show(&ctx, |ui| {
+                settings::settings_ui(ui, &mut self.settings);
+            });
+        self.settings_open = open;
+
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         egui::Panel::left("model")
@@ -330,6 +355,10 @@ impl eframe::App for ViewerApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ui, |ui| self.viewport.ui(ui, &render_state));
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, settings::STORAGE_KEY, &self.settings);
     }
 }
 
