@@ -240,6 +240,8 @@ pub struct Evaluator {
     top_scope: Option<Rc<Scope>>,
     top_nodes: Vec<Node>,
     current_root_call: Option<SourceRef>,
+    /// Parsed `-D` overrides with the id of their virtual source file.
+    defines: Rc<[(Name, Expr, u32)]>,
     pub(crate) options: EvalOptions,
 }
 
@@ -261,6 +263,7 @@ impl Evaluator {
             top_scope: None,
             top_nodes: Vec::new(),
             current_root_call: None,
+            defines: Rc::from([]),
             options,
         }
     }
@@ -301,6 +304,7 @@ impl Evaluator {
             Ok(parsed) => parsed,
             Err(err) => return (Vec::new(), Some(err)),
         };
+        self.defines = self.parse_defines();
         let root = self.root_scope();
         self.stack = vec![root.clone()];
         self.top_scope = Some(root.clone());
@@ -308,6 +312,42 @@ impl Evaluator {
         let result = self.eval_block(&file.statements, &root, None);
         let nodes = std::mem::take(&mut self.top_nodes);
         (nodes, result.err())
+    }
+
+    /// Parses the `-D name=expr` overrides once. Each one becomes a small
+    /// virtual source file, so messages raised while evaluating it point to
+    /// the define rather than to an unrelated line of the program.
+    fn parse_defines(&mut self) -> Rc<[(Name, Expr, u32)]> {
+        let mut parsed = Vec::new();
+        for (name, expr) in self.options.defines.clone() {
+            let text = format!("{name} = {expr};");
+            let tree = scad_syntax::parse(&text);
+            let assignment = match tree.tree().statements.as_slice() {
+                [
+                    Statement {
+                        kind: StatementKind::Assignment(a),
+                        ..
+                    },
+                ] if tree.errors().is_empty() => Some(a.clone()),
+                _ => None,
+            };
+            let Some(assignment) = assignment else {
+                self.message(
+                    Level::Warning,
+                    format!("Ignoring invalid definition -D {name}={expr}"),
+                    None,
+                );
+                continue;
+            };
+            let id = self.files.len() as u32;
+            self.files.push(SourceInfo {
+                path: PathBuf::from(format!("-D {name}")),
+                index: LineIndex::new(&text),
+                text: text.into(),
+            });
+            parsed.push((assignment.name, assignment.value, id));
+        }
+        parsed.into()
     }
 
     fn root_scope(&self) -> Rc<Scope> {
@@ -801,28 +841,11 @@ impl Evaluator {
         // 2. Assignments, in order. A reassigned variable takes its last
         //    value at the position of its first assignment (the warning is
         //    emitted when the file is parsed, see `reassignment_warnings`).
-        let parsed_defines: Vec<(Name, Expr)> = if is_top && !self.options.defines.is_empty() {
-            self.options
-                .defines
-                .iter()
-                .filter_map(|(k, v)| {
-                    let snippet = format!("{k} = {v};");
-                    let parsed = scad_syntax::parse(&snippet);
-                    if !parsed.errors().is_empty() {
-                        return None;
-                    }
-                    parsed
-                        .tree()
-                        .statements
-                        .into_iter()
-                        .find_map(|s| match s.kind {
-                            StatementKind::Assignment(a) => Some((a.name, a.value)),
-                            _ => None,
-                        })
-                })
-                .collect()
+        // `-D` overrides apply to the main program's top-level scope only.
+        let defines = if is_top {
+            self.defines.clone()
         } else {
-            Vec::new()
+            Rc::from([])
         };
 
         let mut order: Vec<(&Name, &Expr, u32)> = Vec::new();
@@ -840,14 +863,14 @@ impl Evaluator {
                 }
             }
         }
-        for (def_name, def_expr) in &parsed_defines {
+        // Like an assignment appended to the file: it replaces the expression
+        // of an existing variable at its original position.
+        for (def_name, def_expr, def_file) in defines.iter() {
             match position.get(def_name) {
-                Some(&i) => {
-                    order[i] = (def_name, def_expr, 0);
-                }
+                Some(&i) => order[i] = (def_name, def_expr, *def_file),
                 None => {
                     position.insert(def_name, order.len());
-                    order.push((def_name, def_expr, 0));
+                    order.push((def_name, def_expr, *def_file));
                 }
             }
         }

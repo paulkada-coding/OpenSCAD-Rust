@@ -240,6 +240,35 @@ fn defines_override_before_dependent_assignments_without_warning() {
 }
 
 #[test]
+fn invalid_defines_warn_and_define_messages_point_to_the_define() {
+    let src = "a = 1;\nb = 2;\necho(a, b);\n";
+    let mut ev = Evaluator::new(EvalOptions {
+        defines: vec![("a".into(), "1 +".into()), ("b".into(), "nope".into())],
+        ..EvalOptions::default()
+    });
+    let (_, err) = ev.run(Path::new("defs.scad"), src);
+    assert!(err.is_none());
+    let msgs: Vec<String> = ev
+        .messages()
+        .iter()
+        .map(|m| {
+            let file = m
+                .file
+                .map(|f| ev.files()[f as usize].path.display().to_string());
+            format!("{}: {} @ {file:?}:{:?}", m.level.label(), m.text, m.line)
+        })
+        .collect();
+    assert_eq!(
+        msgs,
+        [
+            "WARNING: Ignoring invalid definition -D a=1 + @ None:None",
+            "WARNING: Ignoring unknown variable \"nope\" @ Some(\"-D b\"):Some(1)",
+            "ECHO: 1, undef @ Some(\"defs.scad\"):Some(3)",
+        ]
+    );
+}
+
+#[test]
 fn source_cache_reuses_parsed_library_and_invalidates_on_change() {
     let dir = std::env::temp_dir().join(format!("scadr_cache_test_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

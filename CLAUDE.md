@@ -33,7 +33,7 @@ Predisposta per: modellazione 3D diretta e assistente AI (Claude / Gemini) integ
 | Interprete | tree-walking su AST tipizzato (bytecode in futuro), `stacker` per ricorsione profonda |
 | Kernel CSG 3D | Manifold (C++, Apache-2.0) via binding Rust |
 | 2D | Manifold CrossSection (Clipper2) |
-| Font (`text()`) | `skrifa` + `harfrust`/`rustybuzz` + `fontdb` |
+| Font (`text()`) | `skrifa` + `rustybuzz` + `fontdb`, Liberation Sans incluso (crate `scad-font`) |
 | Rendering | `wgpu` (DX12/Vulkan/Metal) + shader WGSL; adapter `HighPerformance` (PC con RTX 5080 + iGPU AMD) |
 | UI | `egui` / `eframe` + `egui_dock` |
 | Export | STL (bin/ASCII), 3MF, OBJ; SVG/DXF per il 2D |
@@ -114,8 +114,24 @@ Principi:
   (`OPENSCADPATH` + `Documents/OpenSCAD/libraries`), flag CLI `-L`, `-D var=expr` ed export `.echo`
   in `scadr`, property/fuzz test su digitazione live e `cargo fmt --all` uniforme su tutto il
   workspace. Guida alla revisione in `docs/milestone2-improvements-review.md`.
-  Prossimo passo: revisione dei branch `milestone-2-complete` e `milestone-2-improvements`, merge su
-  `main` e avvio milestone 3.
+- 2026-10-31: **revisione di Claude completata, entrambi i branch uniti in `main`** (fast-forward).
+  Verificato in modo indipendente: 215/215 casi, test/clippy/fmt puliti, nessun `unsafe` nuovo,
+  `tests/compat` e la normalizzazione del runner non toccati (risultato genuino). Correzione
+  applicata: gli override `-D` vengono analizzati una sola volta all'avvio come sorgenti virtuali
+  (`-D nome`), un `-D` non valido produce `WARNING: Ignoring invalid definition` invece di essere
+  ignorato in silenzio, e i messaggi generati dentro un `-D` puntano al `-D` e non al file principale.
+  Prossimo passo: milestone 3.
+
+## Note per le prossime milestone
+
+- `SourceCache` usa `Rc<RefCell>` e non è `Send`: nell'app la valutazione girerà in un thread di
+  lavoro dedicato che possiede la cache (non condividerla tra thread).
+- `SourceCache` copre `include`/`use`; il file principale viene sempre ri-analizzato (nell'app
+  arriva dal buffer dell'editor, non dal disco).
+- `scad-font::shape_contours` è pronto ma non ancora usato: servirà a `text()` in M5.
+- Gli override `-D` sono la base per i valori del Customizer (M4): stessa semantica di
+  OpenSCAD (assegnazione aggiunta in coda al file → sostituisce l'espressione nella posizione
+  originale).
 
 ## Comandi
 
