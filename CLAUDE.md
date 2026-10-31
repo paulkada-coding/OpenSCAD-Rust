@@ -48,10 +48,11 @@ basata su documentazione e comportamento osservato.
 ```
 crates/
   scad-syntax/   lexer logos, parser ricorsivo, CST rowan lossless, AST, diagnostica lessicale
-  scad-eval/     interprete, scope lessicali + `$` dinamiche, builtin, `Value::Object`, metriche font (`skrifa` + `rustybuzz` + `fontdb`, Liberation Sans SIL OFL)
-  scadr/         CLI compatibile con OpenSCAD (`-o x.csg`, `-D`, `--enable=...`, exit code e diagnostica)
+  scad-font/     scoperta font (`fontdb` + Liberation Sans SIL OFL), shaping `rustybuzz`, metriche e contorni 2D `skrifa`
+  scad-eval/     interprete, scope lessicali + `$` dinamiche, `SourceCache` cross-run, `Value::Object`, builtin
+  scadr/         CLI compatibile con OpenSCAD (`-o x.csg|x.echo`, `-L`, `-D`, `--enable=...`, exit code e diagnostica)
   manifold/      Manifold v3.5.4 vendorizzato + shim C++ anti-eccezioni (pronto per M3)
-  geometry/      Mesh indicizzata f64, Aabb, volume/area, spigoli vivi, albero CSG (`Node`/`NodeKind` incl. `Text`, `Import`, `Surface`) ed export `.csg`
+  geometry/      Mesh indicizzata f64, Aabb, volume/area, spigoli vivi, albero CSG (`Node` con `source` + `root_call`) ed export `.csg`
   mesh-io/       STL lettura (binario/ASCII) e scrittura; poi 3MF/OBJ, import SVG/DXF
   render/        Scene wgpu offscreen (MSAA 4x, sRGB), OrbitCamera Z-up, rendering headless → PNG
   ai/            (da fare) provider Claude/Gemini, strumenti
@@ -105,7 +106,16 @@ Principi:
   24 test; da integrare in M3), `tools/compat-runner` + `tests/compat`.
   Compatibilità attuale: **215/215 casi (100.0%)**, zero warning `clippy`, zero `unsafe` nei crate
   del linguaggio/interprete. Resoconto dettagliato per la revisione in `docs/milestone2-review.md`.
-  Prossimo passo: revisione del branch `milestone-2-complete`, merge su `main` e avvio milestone 3.
+- 2026-10-31: **miglioramenti architetturali sul branch `milestone-2-improvements`** (partito da
+  `milestone-2-complete`): estratto il crate condiviso `scad-font` (con estrazione di contorni 2D
+  appiattiti pronta per M5), source mapping bidirezionale su `geometry::csg::Node` (`source` +
+  `root_call` + `find_at_offset` + `Evaluator::resolve_source`), `SourceCache` riutilizzabile tra
+  esecuzioni con invalidazione automatica su modifica disco, percorsi libreria standard
+  (`OPENSCADPATH` + `Documents/OpenSCAD/libraries`), flag CLI `-L`, `-D var=expr` ed export `.echo`
+  in `scadr`, property/fuzz test su digitazione live e `cargo fmt --all` uniforme su tutto il
+  workspace. Guida alla revisione in `docs/milestone2-improvements-review.md`.
+  Prossimo passo: revisione dei branch `milestone-2-complete` e `milestone-2-improvements`, merge su
+  `main` e avvio milestone 3.
 
 ## Comandi
 
