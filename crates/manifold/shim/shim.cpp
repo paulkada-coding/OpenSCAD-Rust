@@ -454,6 +454,74 @@ void mshim_delete_mesh(ManifoldMeshGL64* mesh) noexcept {
   manifold_delete_meshgl64(mesh);
 }
 
+size_t mshim_mesh_num_run(ManifoldMeshGL64* mesh) noexcept {
+  return manifold_meshgl64_run_original_id_length(mesh);
+}
+
+// Copies runIndex (num_run + 1 entries, offsets into triVerts) and
+// runOriginalID (num_run entries).
+int mshim_mesh_copy_runs(ManifoldMeshGL64* mesh, uint64_t* run_index,
+                         uint32_t* run_original_id) noexcept {
+  return Try([&] {
+    if (manifold_meshgl64_run_index_length(mesh) > 0) {
+      manifold_meshgl64_run_index(run_index, mesh);
+    }
+    if (manifold_meshgl64_run_original_id_length(mesh) > 0) {
+      manifold_meshgl64_run_original_id(run_original_id, mesh);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Manifold: mesh relations
+
+ManifoldManifold* mshim_manifold_as_original(ManifoldManifold* m) noexcept {
+  return NewManifold(manifold_as_original, m);
+}
+
+int mshim_manifold_original_id(ManifoldManifold* m, int* out) noexcept {
+  return Try([&] { *out = manifold_original_id(m); });
+}
+
+// ---------------------------------------------------------------------------
+// Triangulation
+
+// `pts` holds all contours back to back; `lens[i]` is the point count of
+// contour i. Triangle indices refer to that concatenated point list.
+ManifoldTriangulation* mshim_triangulate(const ManifoldVec2* pts,
+                                         const size_t* lens, size_t n,
+                                         double epsilon) noexcept {
+  return New(manifold_alloc_triangulation, [&](void* mem) {
+    std::vector<OwnedSimplePolygon> contours;
+    std::vector<ManifoldSimplePolygon*> raw;
+    contours.reserve(n);
+    raw.reserve(n);
+    size_t start = 0;
+    for (size_t i = 0; i < n; ++i) {
+      contours.push_back(SimplePolygon(pts + start, lens[i]));
+      raw.push_back(contours.back().p);
+      start += lens[i];
+    }
+    OwnedPolygons polys(NewOrThrow(manifold_alloc_polygons, [&](void* pm) {
+      return manifold_polygons(pm, raw.data(), n);
+    }));
+    return manifold_triangulate(mem, polys.p, epsilon);
+  });
+}
+
+size_t mshim_triangulation_num_tri(ManifoldTriangulation* t) noexcept {
+  return manifold_triangulation_num_tri(t);
+}
+
+// Copies 3 * num_tri vertex indices into `out`.
+int mshim_triangulation_copy_out(ManifoldTriangulation* t, int* out) noexcept {
+  return Try([&] { manifold_triangulation_tri_verts(out, t); });
+}
+
+void mshim_delete_triangulation(ManifoldTriangulation* t) noexcept {
+  manifold_delete_triangulation(t);
+}
+
 // ---------------------------------------------------------------------------
 // Manifold <-> CrossSection
 

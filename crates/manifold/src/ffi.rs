@@ -37,6 +37,12 @@ pub struct ManifoldPolygons {
     _private: [u8; 0],
 }
 
+/// Opaque `ManifoldTriangulation` (a `std::vector<manifold::ivec3>`).
+#[repr(C)]
+pub struct ManifoldTriangulation {
+    _private: [u8; 0],
+}
+
 /// `ManifoldVec2` from `manifold/types.h`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -202,6 +208,27 @@ unsafe extern "C" {
         tris: *mut u64,
     ) -> c_int;
     pub fn mshim_delete_mesh(mesh: *mut ManifoldMeshGL64);
+    pub fn mshim_mesh_num_run(mesh: *mut ManifoldMeshGL64) -> usize;
+    pub fn mshim_mesh_copy_runs(
+        mesh: *mut ManifoldMeshGL64,
+        run_index: *mut u64,
+        run_original_id: *mut u32,
+    ) -> c_int;
+
+    // Manifold: mesh relations
+    pub fn mshim_manifold_as_original(m: *mut ManifoldManifold) -> *mut ManifoldManifold;
+    pub fn mshim_manifold_original_id(m: *mut ManifoldManifold, out: *mut c_int) -> c_int;
+
+    // Triangulation
+    pub fn mshim_triangulate(
+        pts: *const Vec2,
+        lens: *const usize,
+        n: usize,
+        epsilon: f64,
+    ) -> *mut ManifoldTriangulation;
+    pub fn mshim_triangulation_num_tri(t: *mut ManifoldTriangulation) -> usize;
+    pub fn mshim_triangulation_copy_out(t: *mut ManifoldTriangulation, out: *mut c_int) -> c_int;
+    pub fn mshim_delete_triangulation(t: *mut ManifoldTriangulation);
 
     // Manifold <-> CrossSection
     pub fn mshim_manifold_slice(m: *mut ManifoldManifold, height: f64)

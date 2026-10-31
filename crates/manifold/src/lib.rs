@@ -30,7 +30,9 @@ use std::ffi::CStr;
 
 pub use cross_section::{CrossSection, FillRule, JoinType, Rect};
 pub use geometry::{Aabb, Mesh, glam};
-pub use solid::{Manifold, OpType};
+pub use solid::{Manifold, MeshRun, OpType};
+
+use std::ptr::NonNull;
 
 use glam::DVec2;
 
@@ -143,6 +145,50 @@ pub fn revolve(
         return Manifold::empty();
     }
     solid::revolve(cross_section, circular_segments, revolve_degrees)
+}
+
+/// Triangulates a polygon with holes (Manifold's robust ear clipping):
+/// outlines counter-clockwise, holes clockwise. Returned indices refer to
+/// the points of all `contours` concatenated in order; triangles are
+/// counter-clockwise. `epsilon` is the tolerance for slightly invalid
+/// input (negative: derived from the bounds).
+pub fn triangulate<P: AsRef<[DVec2]>>(contours: &[P], epsilon: f64) -> Vec<[usize; 3]> {
+    let lens: Vec<usize> = contours.iter().map(|c| c.as_ref().len()).collect();
+    let pts: Vec<ffi::Vec2> = contours
+        .iter()
+        .flat_map(|c| c.as_ref().iter())
+        .map(|p| ffi::Vec2 { x: p.x, y: p.y })
+        .collect();
+    // SAFETY: `pts` holds `sum(lens)` points and `lens` `lens.len()`
+    // counts; the shim copies both.
+    let raw = unsafe { ffi::mshim_triangulate(pts.as_ptr(), lens.as_ptr(), lens.len(), epsilon) };
+    let Some(raw) = NonNull::new(raw) else {
+        cxx_panic("triangulate");
+    };
+    let guard = TriangulationGuard(raw);
+    // SAFETY: `guard.0` is a live triangulation owned by the guard.
+    let num_tri = unsafe { ffi::mshim_triangulation_num_tri(guard.0.as_ptr()) };
+    let mut out = vec![0 as std::ffi::c_int; num_tri * 3];
+    // SAFETY: `out` has room for the 3 * num_tri indices reported.
+    let ok = unsafe { ffi::mshim_triangulation_copy_out(guard.0.as_ptr(), out.as_mut_ptr()) };
+    if ok == 0 {
+        cxx_panic("triangulate");
+    }
+    out.as_chunks::<3>()
+        .0
+        .iter()
+        .map(|t| t.map(|i| usize::try_from(i).unwrap_or(0)))
+        .collect()
+}
+
+/// Frees a triangulation returned by the shim.
+struct TriangulationGuard(NonNull<ffi::ManifoldTriangulation>);
+
+impl Drop for TriangulationGuard {
+    fn drop(&mut self) {
+        // SAFETY: the guard owns the object and it is never used again.
+        unsafe { ffi::mshim_delete_triangulation(self.0.as_ptr()) }
+    }
 }
 
 /// Message of the last C++ exception caught by the shim on this thread.

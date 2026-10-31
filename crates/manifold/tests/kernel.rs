@@ -586,6 +586,50 @@ fn revolutions() {
     assert!(revolve(&CrossSection::empty(), n, 360.0).is_empty());
 }
 
+// ----- Triangulation and provenance -----
+
+#[test]
+fn triangulation() {
+    // Square with a square hole: 8 triangles covering area 64.
+    let outer = square(0.0, 0.0, 10.0, 10.0);
+    let hole: Vec<DVec2> = square(2.0, 2.0, 8.0, 8.0).into_iter().rev().collect();
+    let contours = [outer, hole];
+    let all: Vec<DVec2> = contours.iter().flatten().copied().collect();
+    let tris = manifold::triangulate(&contours, -1.0);
+    assert_eq!(tris.len(), 8);
+    let area: f64 = tris
+        .iter()
+        .map(|t| (all[t[1]] - all[t[0]]).perp_dot(all[t[2]] - all[t[0]]) / 2.0)
+        .sum();
+    assert_close(area, 64.0, EPS);
+    // Every triangle is counter-clockwise.
+    for t in &tris {
+        assert!((all[t[1]] - all[t[0]]).perp_dot(all[t[2]] - all[t[0]]) > 0.0);
+    }
+    assert!(manifold::triangulate::<Vec<DVec2>>(&[], -1.0).is_empty());
+}
+
+#[test]
+fn original_ids_survive_booleans() {
+    let a = unit_cube().as_original();
+    let b = Manifold::cube(DVec3::ONE, false)
+        .translate(DVec3::new(0.5, 0.5, 0.5))
+        .as_original();
+    let (ida, idb) = (a.original_id(), b.original_id());
+    assert!(ida >= 0 && idb >= 0 && ida != idb);
+    let u = a.union(&b);
+    assert_eq!(u.original_id(), -1);
+    let (mesh, runs) = u.to_mesh_with_runs();
+    assert!(!runs.is_empty());
+    assert_eq!(runs.last().unwrap().triangles.end, mesh.triangles.len());
+    let ids: Vec<u32> = runs.iter().map(|r| r.original_id).collect();
+    assert!(ids.contains(&(ida as u32)) && ids.contains(&(idb as u32)));
+    // Runs tile the triangle list in order.
+    for pair in runs.windows(2) {
+        assert_eq!(pair[0].triangles.end, pair[1].triangles.start);
+    }
+}
+
 // ----- Ownership and threads -----
 
 #[test]

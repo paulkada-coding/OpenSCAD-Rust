@@ -31,6 +31,15 @@ impl OpType {
     }
 }
 
+/// Consecutive output triangles that come from the same original mesh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeshRun {
+    /// See [`Manifold::original_id`].
+    pub original_id: u32,
+    /// Triangle indices (not vertex indices) covered by the run.
+    pub triangles: std::ops::Range<usize>,
+}
+
 /// A closed, oriented, watertight solid (`manifold::Manifold`).
 ///
 /// Cheap to clone: copies share the underlying geometry. Booleans and
@@ -170,12 +179,43 @@ impl Manifold {
     /// Triangle mesh of the solid (counter-clockwise triangles seen from
     /// outside). Vertices are shared between triangles.
     pub fn to_mesh(&self) -> Mesh {
+        self.to_mesh_with_runs().0
+    }
+
+    /// Like [`Self::to_mesh`], plus the provenance of the triangles: runs
+    /// of consecutive triangles coming from the same original mesh (see
+    /// [`Self::as_original`]), in triangle order.
+    pub fn to_mesh_with_runs(&self) -> (Mesh, Vec<MeshRun>) {
         // SAFETY: `self.raw()` is live; returns a new mesh object or null.
         let raw = unsafe { ffi::mshim_manifold_get_mesh(self.raw()) };
         let Some(raw) = NonNull::new(raw) else {
             cxx_panic("to_mesh");
         };
         let mesh = MeshGuard(raw);
+        // SAFETY: `mesh.0` is a live MeshGL64 owned by the guard.
+        let num_run = unsafe { ffi::mshim_mesh_num_run(mesh.0.as_ptr()) };
+        let mut run_index = vec![0u64; num_run + 1];
+        let mut run_id = vec![0u32; num_run];
+        // SAFETY: runIndex has num_run + 1 entries (or none, when there
+        // are no runs) and runOriginalID num_run entries.
+        let ok = unsafe {
+            ffi::mshim_mesh_copy_runs(mesh.0.as_ptr(), run_index.as_mut_ptr(), run_id.as_mut_ptr())
+        };
+        if ok == 0 {
+            cxx_panic("to_mesh");
+        }
+        let runs = run_id
+            .iter()
+            .enumerate()
+            .map(|(i, &original_id)| MeshRun {
+                original_id,
+                triangles: (run_index[i] / 3) as usize..(run_index[i + 1] / 3) as usize,
+            })
+            .collect();
+        (Self::copy_mesh(&mesh), runs)
+    }
+
+    fn copy_mesh(mesh: &MeshGuard) -> Mesh {
         // SAFETY: `mesh.0` is a live MeshGL64 owned by the guard.
         let (num_prop, props_len, tri_len) = unsafe {
             (
@@ -238,6 +278,21 @@ impl Manifold {
 
     pub fn num_tri(&self) -> usize {
         self.query("num_tri", ffi::mshim_manifold_num_tri)
+    }
+
+    /// Marks this solid as a new original mesh: its triangles get a fresh
+    /// [`Self::original_id`], kept through later booleans and reported by
+    /// [`Self::to_mesh_with_runs`].
+    pub fn as_original(&self) -> Self {
+        // SAFETY: `self.raw()` is live; returns a new object or null.
+        let ptr = unsafe { ffi::mshim_manifold_as_original(self.raw()) };
+        Self::from_raw(ptr, "as_original")
+    }
+
+    /// ID of the original mesh this solid is (see [`Self::as_original`]),
+    /// or -1 when it is the result of an operation.
+    pub fn original_id(&self) -> i32 {
+        self.query("original_id", ffi::mshim_manifold_original_id)
     }
 
     /// Topological genus (number of handles) of a connected solid.
