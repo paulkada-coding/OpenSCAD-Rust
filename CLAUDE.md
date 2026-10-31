@@ -47,16 +47,19 @@ basata su documentazione e comportamento osservato.
 
 ```
 crates/
-  scad-syntax/   (da fare) lexer, parser, CST lossless, AST
-  scad-eval/     (da fare) interprete, builtin, include/use
-  geometry/      Mesh indicizzata f64, Aabb, volume/area, spigoli vivi; poi albero CSG, Manifold, cache
+  scad-syntax/   lexer logos, parser ricorsivo, CST rowan lossless, AST, diagnostica lessicale
+  scad-eval/     interprete, scope lessicali + `$` dinamiche, builtin, `Value::Object`, metriche font (`skrifa` + `rustybuzz` + `fontdb`, Liberation Sans SIL OFL)
+  scadr/         CLI compatibile con OpenSCAD (`-o x.csg`, `-D`, `--enable=...`, exit code e diagnostica)
+  manifold/      Manifold v3.5.4 vendorizzato + shim C++ anti-eccezioni (pronto per M3)
+  geometry/      Mesh indicizzata f64, Aabb, volume/area, spigoli vivi, albero CSG (`Node`/`NodeKind` incl. `Text`, `Import`, `Surface`) ed export `.csg`
   mesh-io/       STL lettura (binario/ASCII) e scrittura; poi 3MF/OBJ, import SVG/DXF
   render/        Scene wgpu offscreen (MSAA 4x, sRGB), OrbitCamera Z-up, rendering headless → PNG
   ai/            (da fare) provider Claude/Gemini, strumenti
   app/           UI egui: menu, pannello modello, viewport, barra di stato
 tools/
-  compat-runner/ (da fare) confronto automatico con OpenSCAD
+  compat-runner/ confronto automatico parallelo con gli output attesi di OpenSCAD Nightly
 examples/        file .scad di prova (+ STL generati con OpenSCAD)
+tests/compat/    suite di compatibilità con 215 casi `.scad` + `.csg`/`.log` di riferimento
 ```
 
 Note tecniche del rendering:
@@ -77,7 +80,7 @@ Principi:
 ## Roadmap
 
 1. [x] **Fondamenta** — toolchain, workspace, finestra con viewer wgpu che carica/ruota un STL
-2. [ ] **Linguaggio** — parser, espressioni, funzioni, moduli, `echo`, test vs OpenSCAD
+2. [x] **Linguaggio** — parser, espressioni, funzioni, moduli, `echo`, test vs OpenSCAD (**215/215 — 100%**)
 3. [ ] **Primo render** — primitive 3D, trasformazioni, booleane Manifold, export STL
 4. [ ] **Customizer** — parametri da commenti `// [min:step:max]`, slider, preset JSON, render incrementale
 5. [ ] **2D e avanzate** — extrude, offset, hull, minkowski, text, import
@@ -93,18 +96,16 @@ Principi:
   viste predefinite, prospettiva/ortogonale, griglia/assi/spigoli, info modello.
   Verificato: render headless e screenshot della GUI. Da provare a mano: interazione mouse.
   Prossimo passo: milestone 2 (linguaggio).
-- 2026-10-31: **milestone 2 in gran parte fatta.** Nuovi crate: `scad-syntax` (lexer logos, parser
-  rowan lossless, AST), `scad-eval` (interprete: scope lessicali + `$` dinamiche, tail call,
-  list comprehension, include/use, children, builtin, TRACE), `scadr` (CLI `scadr -o x.csg f.scad`),
-  `manifold` (Manifold v3.5.4 vendorizzato + shim C++ anti-eccezioni, 24 test; da usare in M3),
-  `tools/compat-runner` + `tests/compat` (215 casi con output di OpenSCAD Nightly) e
-  `docs/openscad-behavior.md` (regole osservate, da consultare sempre).
-  Compatibilità attuale: **181/215 casi (84%)**. Mancano: zeri negativi nelle matrici di
-  rotazione, warning di parametri non validi (translate/rotate/scale/mirror/polygon/color),
-  warning "does not support child modules", include mancante come warning, export text/import/
-  surface, warning del lexer (escape, identificatori con cifre, interi grandi, overflow),
-  rands mt19937, oggetti/swizzle (feature sperimentali).
-  Comando: `cargo build -p scadr; cargo run -p compat-runner -- -v`.
+- 2026-10-31: **milestone 2 completata sul branch `milestone-2-complete` (in attesa di revisione).**
+  Crate attivi: `scad-syntax` (lexer logos, parser rowan lossless, AST, diagnostica lessicale),
+  `scad-eval` (interprete completo: scope lessicali + `$` dinamiche, tail call, list comprehension,
+  include/use, children, builtin, `Mt19937`, `Value::Object`, swizzle `.xyzw`/`.rgba`,
+  `fontmetrics()`/`textmetrics()` con `skrifa` + `rustybuzz` + `fontdb` e font Liberation Sans SIL OFL),
+  `scadr` (CLI `scadr -o x.csg f.scad`, `--enable=...`, `-D`), `manifold` (Manifold v3.5.4 + shim C++,
+  24 test; da integrare in M3), `tools/compat-runner` + `tests/compat`.
+  Compatibilità attuale: **215/215 casi (100.0%)**, zero warning `clippy`, zero `unsafe` nei crate
+  del linguaggio/interprete. Resoconto dettagliato per la revisione in `docs/milestone2-review.md`.
+  Prossimo passo: revisione del branch `milestone-2-complete`, merge su `main` e avvio milestone 3.
 
 ## Comandi
 
