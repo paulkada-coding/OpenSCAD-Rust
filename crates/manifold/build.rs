@@ -77,6 +77,8 @@ fn main() {
         .std("c++17")
         .file(manifest.join("shim").join("shim.cpp"))
         .include(manifold_src.join("bindings").join("c").join("include"))
+        // The configured copy, which has the generated `clipper.version.h`.
+        .include(clipper_src.join("CPP").join("Clipper2Lib").join("include"))
         .warnings(true);
     if msvc {
         shim.flag("/EHs").flag("/EHc-").static_crt(false);

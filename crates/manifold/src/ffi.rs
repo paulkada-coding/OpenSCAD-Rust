@@ -43,6 +43,12 @@ pub struct ManifoldTriangulation {
     _private: [u8; 0],
 }
 
+/// Opaque `MshimPaths64` (a `Clipper2Lib::Paths64`).
+#[repr(C)]
+pub struct MshimPaths64 {
+    _private: [u8; 0],
+}
+
 /// `ManifoldVec2` from `manifold/types.h`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -229,6 +235,37 @@ unsafe extern "C" {
     pub fn mshim_triangulation_num_tri(t: *mut ManifoldTriangulation) -> usize;
     pub fn mshim_triangulation_copy_out(t: *mut ManifoldTriangulation, out: *mut c_int) -> c_int;
     pub fn mshim_delete_triangulation(t: *mut ManifoldTriangulation);
+
+    // Clipper2 on integer coordinates
+    pub fn mshim_clip_boolean(
+        subj_pts: *const i64,
+        subj_lens: *const usize,
+        n_subj: usize,
+        clip_pts: *const i64,
+        clip_lens: *const usize,
+        n_clip: usize,
+        op: c_int,
+        fill: c_int,
+    ) -> *mut MshimPaths64;
+    pub fn mshim_clip_offset(
+        pts: *const i64,
+        lens: *const usize,
+        n: usize,
+        delta: f64,
+        join: c_int,
+        miter_limit: f64,
+        arc_tolerance: f64,
+    ) -> *mut MshimPaths64;
+    pub fn mshim_clip_minkowski(
+        pattern: *const i64,
+        n_pattern: usize,
+        path: *const i64,
+        n_path: usize,
+    ) -> *mut MshimPaths64;
+    pub fn mshim_paths64_len(ps: *mut MshimPaths64) -> usize;
+    pub fn mshim_paths64_contour_len(ps: *mut MshimPaths64, i: usize) -> usize;
+    pub fn mshim_paths64_copy_out(ps: *mut MshimPaths64, out: *mut i64);
+    pub fn mshim_delete_paths64(ps: *mut MshimPaths64);
 
     // Manifold <-> CrossSection
     pub fn mshim_manifold_slice(m: *mut ManifoldManifold, height: f64)

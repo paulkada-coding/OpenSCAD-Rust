@@ -630,6 +630,54 @@ fn original_ids_survive_booleans() {
     }
 }
 
+#[test]
+fn integer_clipper() {
+    use manifold::clipper::{self, ClipOp, Join};
+    let sq = |x0: i64, y0: i64, x1: i64, y1: i64| vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    let area = |paths: &[clipper::Path64]| -> f64 {
+        paths
+            .iter()
+            .map(|p| {
+                (0..p.len())
+                    .map(|i| {
+                        let (a, b) = (p[i], p[(i + 1) % p.len()]);
+                        (a[0] as f64) * (b[1] as f64) - (b[0] as f64) * (a[1] as f64)
+                    })
+                    .sum::<f64>()
+                    / 2.0
+            })
+            .sum()
+    };
+    let a = [sq(0, 0, 10, 10)];
+    let b = [sq(5, 5, 15, 15)];
+    let u = clipper::boolean(&a, &b, ClipOp::Union, FillRule::NonZero);
+    assert_eq!(area(&u), 175.0);
+    let d = clipper::boolean(&a, &b, ClipOp::Difference, FillRule::NonZero);
+    assert_eq!(area(&d), 75.0);
+    let i = clipper::boolean(&a, &b, ClipOp::Intersection, FillRule::NonZero);
+    assert_eq!(area(&i), 25.0);
+    // Exact integer vertices survive.
+    assert!(i[0].contains(&[5, 5]) && i[0].contains(&[10, 10]));
+    // Nested same-orientation contours under EvenOdd: a frame with a hole.
+    let frame = clipper::boolean(
+        &[sq(0, 0, 10, 10), sq(2, 2, 8, 8)],
+        &[],
+        ClipOp::Union,
+        FillRule::EvenOdd,
+    );
+    assert_eq!(frame.len(), 2);
+    assert_eq!(area(&frame), 64.0);
+
+    let grown = clipper::offset(&a, 2.0, Join::Miter, 2.0, 0.0);
+    assert_eq!(area(&grown), 196.0);
+    let round = clipper::offset(&[sq(0, 0, 1000, 1000)], 100.0, Join::Round, 2.0, 1.0);
+    assert!(area(&round) > 1_400_000.0 && area(&round) < 1_400_000.0 + 31_416.0);
+
+    // Swept along the boundary: a 12x12 ring with an 8x8 hole.
+    let m = clipper::minkowski_sum(&sq(-1, -1, 1, 1), &sq(0, 0, 10, 10));
+    assert_eq!(area(&m), 144.0 - 64.0);
+}
+
 // ----- Ownership and threads -----
 
 #[test]

@@ -21,18 +21,22 @@
 //! v3.x), so concurrent `&self` calls on the same object are safe. Manifold
 //! is built single-threaded (`MANIFOLD_PAR=OFF`): parallelism is up to the
 //! caller (e.g. evaluating independent CSG subtrees on separate threads).
+//!
+//! [`clipper`] exposes Clipper2 on integer coordinates, for callers that
+//! need their own snapping grid; [`triangulate`] is Manifold's polygon
+//! triangulator.
 
+pub mod clipper;
 mod cross_section;
 mod ffi;
 mod solid;
 
 use std::ffi::CStr;
+use std::ptr::NonNull;
 
 pub use cross_section::{CrossSection, FillRule, JoinType, Rect};
 pub use geometry::{Aabb, Mesh, glam};
 pub use solid::{Manifold, MeshRun, OpType};
-
-use std::ptr::NonNull;
 
 use glam::DVec2;
 

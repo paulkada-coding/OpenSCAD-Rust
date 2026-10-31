@@ -19,7 +19,13 @@
 #include <string>
 #include <vector>
 
+#include "clipper2/clipper.h"
 #include "manifold/manifoldc.h"
+
+// Opaque result of the integer Clipper2 functions below.
+struct MshimPaths64 {
+  Clipper2Lib::Paths64 paths;
+};
 
 namespace {
 
@@ -133,6 +139,28 @@ OwnedSimplePolygon SimplePolygon(const ManifoldVec2* pts, size_t n) {
       NewOrThrow(manifold_alloc_simple_polygon, [&](void* mem) {
         return manifold_simple_polygon(mem, const_cast<ManifoldVec2*>(pts), n);
       }));
+}
+
+// `pts` holds x, y pairs of all contours back to back; `lens[i]` is the
+// point count of contour i.
+Clipper2Lib::Paths64 ToPaths64(const int64_t* pts, const size_t* lens,
+                               size_t n) {
+  Clipper2Lib::Paths64 paths;
+  paths.reserve(n);
+  size_t k = 0;
+  for (size_t i = 0; i < n; ++i) {
+    Clipper2Lib::Path64 path;
+    path.reserve(lens[i]);
+    for (size_t j = 0; j < lens[i]; ++j, k += 2) {
+      path.emplace_back(pts[k], pts[k + 1]);
+    }
+    paths.push_back(std::move(path));
+  }
+  return paths;
+}
+
+MshimPaths64* NewPaths(Clipper2Lib::Paths64&& paths) {
+  return new MshimPaths64{std::move(paths)};
 }
 
 OwnedPolygons CrossToPolygons(ManifoldCrossSection* cs) {
@@ -521,6 +549,79 @@ int mshim_triangulation_copy_out(ManifoldTriangulation* t, int* out) noexcept {
 void mshim_delete_triangulation(ManifoldTriangulation* t) noexcept {
   manifold_delete_triangulation(t);
 }
+
+// ---------------------------------------------------------------------------
+// Clipper2 on integer coordinates (the caller chooses the scale)
+
+// Boolean of `subject` and `clip` paths (`op`: Clipper2 ClipType, `fill`:
+// FillRule). Outlines come out counter-clockwise, holes clockwise.
+MshimPaths64* mshim_clip_boolean(const int64_t* subj_pts,
+                                 const size_t* subj_lens, size_t n_subj,
+                                 const int64_t* clip_pts,
+                                 const size_t* clip_lens, size_t n_clip,
+                                 int op, int fill) noexcept {
+  MshimPaths64* out = nullptr;
+  int ok = Try([&] {
+    Clipper2Lib::Clipper64 clipper;
+    clipper.AddSubject(ToPaths64(subj_pts, subj_lens, n_subj));
+    if (n_clip > 0) clipper.AddClip(ToPaths64(clip_pts, clip_lens, n_clip));
+    Clipper2Lib::Paths64 result;
+    clipper.Execute(static_cast<Clipper2Lib::ClipType>(op),
+                    static_cast<Clipper2Lib::FillRule>(fill), result);
+    out = NewPaths(std::move(result));
+  });
+  return ok != 0 ? out : nullptr;
+}
+
+// Offsets closed polygons (`join`: Clipper2 JoinType).
+MshimPaths64* mshim_clip_offset(const int64_t* pts, const size_t* lens,
+                                size_t n, double delta, int join,
+                                double miter_limit,
+                                double arc_tolerance) noexcept {
+  MshimPaths64* out = nullptr;
+  int ok = Try([&] {
+    Clipper2Lib::ClipperOffset offset(miter_limit, arc_tolerance);
+    offset.AddPaths(ToPaths64(pts, lens, n),
+                    static_cast<Clipper2Lib::JoinType>(join),
+                    Clipper2Lib::EndType::Polygon);
+    Clipper2Lib::Paths64 result;
+    offset.Execute(delta, result);
+    out = NewPaths(std::move(result));
+  });
+  return ok != 0 ? out : nullptr;
+}
+
+// Minkowski sum of a closed `pattern` polygon along a closed `path`.
+MshimPaths64* mshim_clip_minkowski(const int64_t* pattern, size_t n_pattern,
+                                   const int64_t* path,
+                                   size_t n_path) noexcept {
+  MshimPaths64* out = nullptr;
+  int ok = Try([&] {
+    Clipper2Lib::Paths64 a = ToPaths64(pattern, &n_pattern, 1);
+    Clipper2Lib::Paths64 b = ToPaths64(path, &n_path, 1);
+    out = NewPaths(Clipper2Lib::MinkowskiSum(a[0], b[0], true));
+  });
+  return ok != 0 ? out : nullptr;
+}
+
+size_t mshim_paths64_len(MshimPaths64* ps) noexcept { return ps->paths.size(); }
+
+size_t mshim_paths64_contour_len(MshimPaths64* ps, size_t i) noexcept {
+  return ps->paths[i].size();
+}
+
+// Copies x, y pairs of all contours into `out`.
+void mshim_paths64_copy_out(MshimPaths64* ps, int64_t* out) noexcept {
+  size_t k = 0;
+  for (const auto& path : ps->paths) {
+    for (const auto& p : path) {
+      out[k++] = p.x;
+      out[k++] = p.y;
+    }
+  }
+}
+
+void mshim_delete_paths64(MshimPaths64* ps) noexcept { delete ps; }
 
 // ---------------------------------------------------------------------------
 // Manifold <-> CrossSection
