@@ -6,8 +6,8 @@ use std::rc::Rc;
 
 use geometry::csg::{Node, NodeKind, SourceRef};
 use rustc_hash::FxHashMap;
-use scad_syntax::LineIndex;
 use scad_syntax::ast::*;
+use scad_syntax::{LineIndex, SyntaxWarningKind, UnterminatedKind};
 
 use crate::builtins;
 use crate::message::{EvalError, EvalResult, Level, Message};
@@ -169,7 +169,10 @@ impl Evaluator {
                 "$vpr",
                 Value::list(vec![55.0.into(), 0.0.into(), 25.0.into()]),
             ),
-            ("$vpt", Value::list(vec![0.0.into(), 0.0.into(), 0.0.into()])),
+            (
+                "$vpt",
+                Value::list(vec![0.0.into(), 0.0.into(), 0.0.into()]),
+            ),
             ("$vpd", Value::Number(140.0)),
             ("$vpf", Value::Number(22.5)),
         ];
@@ -189,9 +192,44 @@ impl Evaluator {
             index: LineIndex::new(text),
         });
         let parse = scad_syntax::parse(text);
+        for warning in parse.warnings() {
+            let line = self
+                .files
+                .get(id as usize)
+                .map(|f| f.index.line(warning.range.start()));
+            let (level, msg) = match &warning.kind {
+                SyntaxWarningKind::DigitIdentifier(ident) => (
+                    Level::Deprecated,
+                    format!(
+                        "Variable names starting with digits (\"{ident}\") will be removed in future releases."
+                    ),
+                ),
+                SyntaxWarningKind::UndefinedEscape => {
+                    (Level::Warning, "Undefined escape sequence".to_string())
+                }
+                SyntaxWarningKind::ImpreciseInteger(raw) => (
+                    Level::Warning,
+                    format!("Integer \"{raw}\" cannot be represented precisely"),
+                ),
+            };
+            self.messages.push(Message {
+                level,
+                text: msg,
+                file: Some(id),
+                line,
+            });
+        }
         if let Some(error) = parse.errors().first() {
             let mut err = EvalError::new("Parser error: syntax error", id, Some(error.range));
             err.parse_detail = Some(error.message.clone());
+            if let Some(unterm) = error.unterminated {
+                let newline_count = text.bytes().filter(|&b| b == b'\n').count() as u32;
+                err.line_override = Some(newline_count + 3);
+                err.pre_error = Some(match unterm {
+                    UnterminatedKind::String => "Parser error: Unterminated string".into(),
+                    UnterminatedKind::Comment => "Parser error: Unterminated comment".into(),
+                });
+            }
             return Err(err);
         }
         let tree = Rc::new(parse.tree());
@@ -312,13 +350,29 @@ impl Evaluator {
 
     /// Records an error as a message (for errors that do not stop evaluation).
     pub fn report_error(&mut self, err: &EvalError) {
-        let line = err
+        let line = err.line_override.or_else(|| {
+            err.span.and_then(|s| {
+                self.files
+                    .get(err.file as usize)
+                    .map(|f| f.index.line(s.start()))
+            })
+        });
+        let file = err
             .span
-            .and_then(|s| self.files.get(err.file as usize).map(|f| f.index.line(s.start())));
+            .map(|_| err.file)
+            .or_else(|| err.line_override.map(|_| err.file));
+        if let Some(pre) = &err.pre_error {
+            self.messages.push(Message {
+                level: Level::Error,
+                text: pre.clone(),
+                file,
+                line,
+            });
+        }
         self.messages.push(Message {
             level: Level::Error,
             text: err.message.clone(),
-            file: err.span.map(|_| err.file),
+            file,
             line,
         });
     }
@@ -359,7 +413,11 @@ impl Evaluator {
                     .iter()
                     .map(|(n, v)| format!("{n} = {}", v.to_repr()))
                     .collect();
-                format!("call of '{name}({})'{}", args.join(", "), self.location(*file, *span))
+                format!(
+                    "call of '{name}({})'{}",
+                    args.join(", "),
+                    self.location(*file, *span)
+                )
             }
         };
         let frames: Vec<&TraceFrame> = self.trace.iter().rev().collect();
@@ -369,7 +427,11 @@ impl Evaluator {
         let excluded = frames.len() - 2 * TRACE_EDGE;
         let mut lines: Vec<String> = frames[..TRACE_EDGE].iter().map(|f| format(f)).collect();
         lines.push(format!("  *** Excluding {excluded} frames ***"));
-        lines.extend(frames[frames.len() - TRACE_EDGE..].iter().map(|f| format(f)));
+        lines.extend(
+            frames[frames.len() - TRACE_EDGE..]
+                .iter()
+                .map(|f| format(f)),
+        );
         lines
     }
 
@@ -520,7 +582,11 @@ impl Evaluator {
                 self.file = file;
                 if let Some(node) = self.eval_instantiation(inst, statement.span, scope, frame)? {
                     // Top-level nodes are kept outside so they survive errors.
-                    if self.top_scope.as_ref().is_some_and(|top| Rc::ptr_eq(top, scope)) {
+                    if self
+                        .top_scope
+                        .as_ref()
+                        .is_some_and(|top| Rc::ptr_eq(top, scope))
+                    {
                         self.top_nodes.push(node);
                     } else {
                         nodes.push(node);
@@ -542,7 +608,10 @@ impl Evaluator {
                 let line = self.files[file as usize].index.line(statement.span.start());
                 match first_line.get(&a.name) {
                     Some(&first) => self.warning(
-                        format!("\"{}\" was assigned on line {first} but was overwritten", a.name),
+                        format!(
+                            "\"{}\" was assigned on line {first} but was overwritten",
+                            a.name
+                        ),
                         statement.span,
                     ),
                     None => {
@@ -652,7 +721,9 @@ impl Evaluator {
         match name.as_str() {
             "children" => return self.eval_children(args, scope, frame, span),
             "for" | "intersection_for" => {
-                return self.eval_for_module(name, args, children, scope, frame).map(Some);
+                return self
+                    .eval_for_module(name, args, children, scope, frame)
+                    .map(Some);
             }
             "let" => {
                 let inner = Scope::child(scope);
@@ -680,7 +751,9 @@ impl Evaluator {
         if let Some(((def, def_file), def_scope)) = scope.lookup_module(name) {
             let values = self.eval_args(args, scope)?;
             return self
-                .call_user_module(&def, def_file, &def_scope, values, children, scope, frame, span)
+                .call_user_module(
+                    &def, def_file, &def_scope, values, children, scope, frame, span,
+                )
                 .map(Some);
         }
 
@@ -731,7 +804,12 @@ impl Evaluator {
                 args: def
                     .params
                     .iter()
-                    .map(|p| (p.name.clone(), call_scope.local_var(&p.name).unwrap_or_default()))
+                    .map(|p| {
+                        (
+                            p.name.clone(),
+                            call_scope.local_var(&p.name).unwrap_or_default(),
+                        )
+                    })
                     .collect(),
                 file: def_file,
                 span: def.span,
@@ -781,9 +859,13 @@ impl Evaluator {
         let selection: Option<Vec<i64>> = match values.positional.first() {
             None => None,
             Some(Value::Number(n)) => Some(vec![*n as i64]),
-            Some(Value::List(items)) => {
-                Some(items.iter().filter_map(Value::as_number).map(|n| n as i64).collect())
-            }
+            Some(Value::List(items)) => Some(
+                items
+                    .iter()
+                    .filter_map(Value::as_number)
+                    .map(|n| n as i64)
+                    .collect(),
+            ),
             Some(Value::Range(r)) => Some(r.iter().map(|n| n as i64).collect()),
             Some(other) => {
                 self.warning(
@@ -866,7 +948,9 @@ impl Evaluator {
             if let Some(var) = &first.name {
                 inner.set_var(var.clone(), value);
             }
-            self.with_scope(&inner, |ev| ev.for_module_level(rest, children, &inner, frame, out))?;
+            self.with_scope(&inner, |ev| {
+                ev.for_module_level(rest, children, &inner, frame, out)
+            })?;
         }
         Ok(())
     }
@@ -919,11 +1003,19 @@ impl Evaluator {
         self.message(Level::Echo, parts.join(", "), span);
     }
 
-    fn check_assert(&mut self, args: &[Argument], values: &Arguments, span: Span) -> EvalResult<()> {
-        let condition = values
-            .positional
-            .first()
-            .or_else(|| values.named.iter().find(|(n, _)| n == "condition").map(|(_, v)| v));
+    fn check_assert(
+        &mut self,
+        args: &[Argument],
+        values: &Arguments,
+        span: Span,
+    ) -> EvalResult<()> {
+        let condition = values.positional.first().or_else(|| {
+            values
+                .named
+                .iter()
+                .find(|(n, _)| n == "condition")
+                .map(|(_, v)| v)
+        });
         if condition.is_some_and(Value::is_truthy) {
             return Ok(());
         }
@@ -934,11 +1026,13 @@ impl Evaluator {
             ),
             None => "Assertion failed".to_string(),
         };
-        if let Some(extra) = values
-            .positional
-            .get(1)
-            .or_else(|| values.named.iter().find(|(n, _)| n == "message").map(|(_, v)| v))
-        {
+        if let Some(extra) = values.positional.get(1).or_else(|| {
+            values
+                .named
+                .iter()
+                .find(|(n, _)| n == "message")
+                .map(|(_, v)| v)
+        }) {
             message.push_str(": ");
             message.push_str(&extra.to_repr());
         }
@@ -947,7 +1041,11 @@ impl Evaluator {
 
     // ------------------------------------------------------- arguments
 
-    pub(crate) fn eval_args(&mut self, args: &[Argument], scope: &Rc<Scope>) -> EvalResult<Arguments> {
+    pub(crate) fn eval_args(
+        &mut self,
+        args: &[Argument],
+        scope: &Rc<Scope>,
+    ) -> EvalResult<Arguments> {
         let mut out = Arguments::default();
         for arg in args {
             let value = self.eval_expr(&arg.value, scope)?;
@@ -1027,7 +1125,10 @@ impl Evaluator {
                 }
                 None if name.starts_with('$') => scope.set_var(name, value),
                 None => {
-                    self.warning(format!("variable \"{name}\" not specified as parameter"), span);
+                    self.warning(
+                        format!("variable \"{name}\" not specified as parameter"),
+                        span,
+                    );
                 }
             }
         }
@@ -1046,7 +1147,9 @@ impl Evaluator {
     // ------------------------------------------------------ expressions
 
     pub(crate) fn eval_expr(&mut self, expr: &Expr, scope: &Rc<Scope>) -> EvalResult<Value> {
-        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || self.eval_expr_inner(expr, scope))
+        stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, || {
+            self.eval_expr_inner(expr, scope)
+        })
     }
 
     fn eval_expr_inner(&mut self, expr: &Expr, scope: &Rc<Scope>) -> EvalResult<Value> {
@@ -1075,14 +1178,18 @@ impl Evaluator {
                 }
                 result
             }
-            ExprKind::Binary { op, lhs, rhs } => self.eval_binary(*op, lhs, rhs, scope, expr.span)?,
+            ExprKind::Binary { op, lhs, rhs } => {
+                self.eval_binary(*op, lhs, rhs, scope, expr.span)?
+            }
             ExprKind::Ternary { .. }
             | ExprKind::Let { .. }
             | ExprKind::Assert { .. }
             | ExprKind::Echo { .. }
             | ExprKind::Call { .. } => match self.eval_tail(expr, scope)? {
                 Tail::Value(value) => value,
-                Tail::Call(callee, args, span, name) => self.call_function(callee, args, span, name)?,
+                Tail::Call(callee, args, span, name) => {
+                    self.call_function(callee, args, span, name)?
+                }
             },
             ExprKind::Index { target, index } => {
                 let target = self.eval_expr(target, scope)?;
@@ -1171,7 +1278,11 @@ impl Evaluator {
         {
             let shift = *shift as i64;
             if !(0..64).contains(&shift) {
-                let reason = if shift < 0 { "negative shift" } else { "shift too large" };
+                let reason = if shift < 0 {
+                    "negative shift"
+                } else {
+                    "shift too large"
+                };
                 self.warning(reason, span);
                 return Ok(Value::Undef);
             }
@@ -1250,7 +1361,9 @@ impl Evaluator {
                         None => return Ok(Tail::Value(Value::Undef)),
                     }
                 }
-                ExprKind::Call { callee, args } => return self.eval_call(callee, args, &scope, expr.span),
+                ExprKind::Call { callee, args } => {
+                    return self.eval_call(callee, args, &scope, expr.span);
+                }
                 _ => return Ok(Tail::Value(self.eval_expr(expr, &scope)?)),
             }
         }
@@ -1329,7 +1442,10 @@ impl Evaluator {
         let result = loop {
             tail_calls += 1;
             if tail_calls > MAX_TAIL_CALLS {
-                break Err(self.error(format!("Recursion detected calling function '{name}'"), call_span));
+                break Err(self.error(
+                    format!("Recursion detected calling function '{name}'"),
+                    call_span,
+                ));
             }
             self.stack.truncate(base);
             let current = callee.clone();

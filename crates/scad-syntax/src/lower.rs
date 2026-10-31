@@ -98,7 +98,9 @@ fn lower_statement(node: &SyntaxNode, out: &mut Vec<Statement>) {
             let Some(name) = token(node, &[IDENT]) else {
                 return;
             };
-            let params = child(node, PARAM_LIST).map(|p| lower_params(&p)).unwrap_or_default();
+            let params = child(node, PARAM_LIST)
+                .map(|p| lower_params(&p))
+                .unwrap_or_default();
             let body = node
                 .children()
                 .skip_while(|n| n.kind() != PARAM_LIST)
@@ -116,7 +118,9 @@ fn lower_statement(node: &SyntaxNode, out: &mut Vec<Statement>) {
             let Some(name) = token(node, &[IDENT]) else {
                 return;
             };
-            let params = child(node, PARAM_LIST).map(|p| lower_params(&p)).unwrap_or_default();
+            let params = child(node, PARAM_LIST)
+                .map(|p| lower_params(&p))
+                .unwrap_or_default();
             let body = lower_opt_expr(expr_children(node).first(), node);
             StatementKind::FunctionDef(Rc::new(FunctionDef {
                 name: name.text().into(),
@@ -200,7 +204,9 @@ fn lower_instantiation(node: &SyntaxNode) -> Option<Instantiation> {
         }
     } else {
         let name = token(node, &[IDENT, FOR_KW, LET_KW, ECHO_KW, ASSERT_KW])?;
-        let args = child(node, ARG_LIST).map(|a| lower_args(&a)).unwrap_or_default();
+        let args = child(node, ARG_LIST)
+            .map(|a| lower_args(&a))
+            .unwrap_or_default();
         let children = node
             .children()
             .find(|n| matches!(n.kind(), BLOCK | MODULE_CALL | IF_STMT))
@@ -304,7 +310,9 @@ fn lower_expr(node: &SyntaxNode) -> Expr {
         },
         CALL_EXPR => ExprKind::Call {
             callee: sub(0),
-            args: child(node, ARG_LIST).map(|a| lower_args(&a)).unwrap_or_default(),
+            args: child(node, ARG_LIST)
+                .map(|a| lower_args(&a))
+                .unwrap_or_default(),
         },
         INDEX_EXPR => ExprKind::Index {
             target: sub(0),
@@ -339,11 +347,15 @@ fn lower_expr(node: &SyntaxNode) -> Expr {
                 .collect(),
         ),
         LET_EXPR => ExprKind::Let {
-            assignments: child(node, ARG_LIST).map(|a| lower_args(&a)).unwrap_or_default(),
+            assignments: child(node, ARG_LIST)
+                .map(|a| lower_args(&a))
+                .unwrap_or_default(),
             body: sub(0),
         },
         ASSERT_EXPR | ECHO_EXPR => {
-            let args = child(node, ARG_LIST).map(|a| lower_args(&a)).unwrap_or_default();
+            let args = child(node, ARG_LIST)
+                .map(|a| lower_args(&a))
+                .unwrap_or_default();
             let body = exprs.first().map(|n| Box::new(lower_expr(n)));
             if node.kind() == ASSERT_EXPR {
                 ExprKind::Assert { args, body }
@@ -352,7 +364,9 @@ fn lower_expr(node: &SyntaxNode) -> Expr {
             }
         }
         FUNCTION_LIT => ExprKind::FunctionLiteral(Rc::new(FunctionLiteral {
-            params: child(node, PARAM_LIST).map(|p| lower_params(&p)).unwrap_or_default(),
+            params: child(node, PARAM_LIST)
+                .map(|p| lower_params(&p))
+                .unwrap_or_default(),
             body: lower_opt_expr(exprs.first(), node),
         })),
         _ => ExprKind::Undef,
@@ -384,7 +398,10 @@ fn binary_op(kind: SyntaxKind) -> BinaryOp {
 }
 
 fn is_generator(kind: SyntaxKind) -> bool {
-    matches!(kind, LC_EACH | LC_FOR | LC_FOR_C | LC_IF | LC_LET | LC_PAREN)
+    matches!(
+        kind,
+        LC_EACH | LC_FOR | LC_FOR_C | LC_IF | LC_LET | LC_PAREN
+    )
 }
 
 fn lower_list_element(node: &SyntaxNode) -> ListElement {
@@ -433,60 +450,28 @@ fn lower_list_element(node: &SyntaxNode) -> ListElement {
 }
 
 fn parse_number(text: &str) -> f64 {
-    match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
-        Some(hex) => u64::from_str_radix(hex, 16).map_or(f64::NAN, |n| n as f64),
+    match text.strip_prefix("0x") {
+        Some(hex) => u64::from_str_radix(hex, 16).map_or_else(
+            |_| {
+                hex.bytes().fold(0.0_f64, |acc, b| {
+                    let digit = match b {
+                        b'0'..=b'9' => b - b'0',
+                        b'a'..=b'f' => b - b'a' + 10,
+                        b'A'..=b'F' => b - b'A' + 10,
+                        _ => 0,
+                    };
+                    acc * 16.0 + f64::from(digit)
+                })
+            },
+            |n| n as f64,
+        ),
         None => text.parse().unwrap_or(f64::NAN),
     }
 }
 
 /// Decodes a quoted string literal.
 fn unescape(quoted: &str) -> String {
-    let inner = quoted
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .unwrap_or(quoted);
-    let mut out = String::with_capacity(inner.len());
-    let mut chars = inner.chars();
-    while let Some(c) = chars.next() {
-        if c != '\\' {
-            out.push(c);
-            continue;
-        }
-        match chars.next() {
-            Some('n') => out.push('\n'),
-            Some('t') => out.push('\t'),
-            Some('r') => out.push('\r'),
-            Some('\\') => out.push('\\'),
-            Some('"') => out.push('"'),
-            Some('\'') => out.push('\''),
-            Some(kind @ ('x' | 'u' | 'U')) => {
-                let digits = match kind {
-                    'x' => 2,
-                    'u' => 4,
-                    _ => 6,
-                };
-                let hex: String = chars.clone().take(digits).collect();
-                match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
-                    Some(decoded) if hex.len() == digits => {
-                        out.push(decoded);
-                        for _ in 0..digits {
-                            chars.next();
-                        }
-                    }
-                    _ => {
-                        out.push('\\');
-                        out.push(kind);
-                    }
-                }
-            }
-            Some(other) => {
-                out.push('\\');
-                out.push(other);
-            }
-            None => out.push('\\'),
-        }
-    }
-    out
+    crate::lexer::decode_string_literal(quoted, 0, |_| {})
 }
 
 #[cfg(test)]
@@ -498,6 +483,7 @@ mod tests {
         assert_eq!(unescape(r#""a\nb""#), "a\nb");
         assert_eq!(unescape(r#""\"q\" \\""#), "\"q\" \\");
         assert_eq!(unescape(r#""\x41€""#), "A€");
-        assert_eq!(unescape(r#""\q""#), "\\q");
+        assert_eq!(unescape(r#""\x00|\u0000|\U000000""#), " | | ");
+        assert_eq!(unescape(r#""\q|\x80|\u12""#), "q|x80|u12");
     }
 }

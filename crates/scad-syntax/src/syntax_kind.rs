@@ -13,14 +13,21 @@ pub enum SyntaxKind {
     LINE_COMMENT,
     #[regex(r"/\*([^*]|\*+[^*/])*\*+/")]
     BLOCK_COMMENT,
+    /// Floating-point literal that overflows `f64`: skipped like trivia by the
+    /// parser (matching OpenSCAD's lexer) while keeping the CST lossless.
+    OVERFLOW_NUMBER,
 
     // ---------------------------------------------------------- literals
     #[regex(r"[0-9]+(\.[0-9]*)?([eE][+-]?[0-9]+)?", priority = 10)]
     #[regex(r"\.[0-9]+([eE][+-]?[0-9]+)?", priority = 10)]
-    #[regex(r"0[xX][0-9a-fA-F]+", priority = 10)]
+    #[regex(r"0x[0-9a-fA-F]+", priority = 10)]
     NUMBER,
-    #[regex(r#""([^"\\]|\\.)*""#)]
+    #[regex(r#""([^"\\]|\\[\s\S])*""#)]
     STRING,
+    #[regex(r#""([^"\\]|\\[\s\S])*\\?"#, priority = 1)]
+    UNTERMINATED_STRING,
+    #[regex(r"/\*([^*]|\*+[^*/])*\**", priority = 1)]
+    UNTERMINATED_COMMENT,
     /// Identifiers may start with a digit (`2d_shape`) or `$` (`$fn`).
     /// The priority must stay below every keyword's (logos gives a literal
     /// token twice its length: "if" gets 4).
@@ -176,7 +183,10 @@ pub enum SyntaxKind {
 
 impl SyntaxKind {
     pub fn is_trivia(self) -> bool {
-        matches!(self, Self::WHITESPACE | Self::LINE_COMMENT | Self::BLOCK_COMMENT)
+        matches!(
+            self,
+            Self::WHITESPACE | Self::LINE_COMMENT | Self::BLOCK_COMMENT | Self::OVERFLOW_NUMBER
+        )
     }
 }
 
@@ -212,16 +222,99 @@ pub type SyntaxElement = rowan::SyntaxElement<ScadLanguage>;
 static KINDS: std::sync::LazyLock<Vec<SyntaxKind>> = std::sync::LazyLock::new(|| {
     use SyntaxKind::*;
     let all = [
-        WHITESPACE, LINE_COMMENT, BLOCK_COMMENT, NUMBER, STRING, IDENT, INCLUDE, USE, MODULE_KW,
-        FUNCTION_KW, IF_KW, ELSE_KW, FOR_KW, LET_KW, EACH_KW, ASSERT_KW, ECHO_KW, TRUE_KW,
-        FALSE_KW, UNDEF_KW, L_PAREN, R_PAREN, L_BRACK, R_BRACK, L_BRACE, R_BRACE, SEMI, COMMA,
-        DOT, EQ, EQ2, NEQ, LT, LTEQ, GT, GTEQ, AMP2, PIPE2, AMP, PIPE, TILDE, SHL, SHR, BANG,
-        PLUS, MINUS, STAR, SLASH, PERCENT, CARET, QUESTION, COLON, HASH, ERROR_TOKEN,
-        SOURCE_FILE, ERROR, EMPTY_STMT, BLOCK, ASSIGNMENT, MODULE_DEF, FUNCTION_DEF, PARAM_LIST,
-        PARAM, INCLUDE_STMT, USE_STMT, MODULE_CALL, IF_STMT, ARG_LIST, ARG, LITERAL, NAME_REF,
-        PAREN_EXPR, UNARY_EXPR, BINARY_EXPR, TERNARY_EXPR, CALL_EXPR, INDEX_EXPR, MEMBER_EXPR,
-        VECTOR_EXPR, RANGE_EXPR, LET_EXPR, ASSERT_EXPR, ECHO_EXPR, FUNCTION_LIT, LC_EACH,
-        LC_FOR, LC_FOR_C, LC_IF, LC_LET, LC_PAREN,
+        WHITESPACE,
+        LINE_COMMENT,
+        BLOCK_COMMENT,
+        OVERFLOW_NUMBER,
+        NUMBER,
+        STRING,
+        UNTERMINATED_STRING,
+        UNTERMINATED_COMMENT,
+        IDENT,
+        INCLUDE,
+        USE,
+        MODULE_KW,
+        FUNCTION_KW,
+        IF_KW,
+        ELSE_KW,
+        FOR_KW,
+        LET_KW,
+        EACH_KW,
+        ASSERT_KW,
+        ECHO_KW,
+        TRUE_KW,
+        FALSE_KW,
+        UNDEF_KW,
+        L_PAREN,
+        R_PAREN,
+        L_BRACK,
+        R_BRACK,
+        L_BRACE,
+        R_BRACE,
+        SEMI,
+        COMMA,
+        DOT,
+        EQ,
+        EQ2,
+        NEQ,
+        LT,
+        LTEQ,
+        GT,
+        GTEQ,
+        AMP2,
+        PIPE2,
+        AMP,
+        PIPE,
+        TILDE,
+        SHL,
+        SHR,
+        BANG,
+        PLUS,
+        MINUS,
+        STAR,
+        SLASH,
+        PERCENT,
+        CARET,
+        QUESTION,
+        COLON,
+        HASH,
+        ERROR_TOKEN,
+        SOURCE_FILE,
+        ERROR,
+        EMPTY_STMT,
+        BLOCK,
+        ASSIGNMENT,
+        MODULE_DEF,
+        FUNCTION_DEF,
+        PARAM_LIST,
+        PARAM,
+        INCLUDE_STMT,
+        USE_STMT,
+        MODULE_CALL,
+        IF_STMT,
+        ARG_LIST,
+        ARG,
+        LITERAL,
+        NAME_REF,
+        PAREN_EXPR,
+        UNARY_EXPR,
+        BINARY_EXPR,
+        TERNARY_EXPR,
+        CALL_EXPR,
+        INDEX_EXPR,
+        MEMBER_EXPR,
+        VECTOR_EXPR,
+        RANGE_EXPR,
+        LET_EXPR,
+        ASSERT_EXPR,
+        ECHO_EXPR,
+        FUNCTION_LIT,
+        LC_EACH,
+        LC_FOR,
+        LC_FOR_C,
+        LC_IF,
+        LC_LET,
+        LC_PAREN,
     ];
     for (i, kind) in all.iter().enumerate() {
         assert_eq!(*kind as usize, i, "KINDS table out of sync at {kind:?}");

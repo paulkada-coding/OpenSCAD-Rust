@@ -36,7 +36,15 @@ fn sample_parses_without_errors() {
 
 #[test]
 fn tree_is_lossless() {
-    for text in [SAMPLE, "cube(", "]]]", "module m( { }", "a = ;", "/* open", "x = \"open"] {
+    for text in [
+        SAMPLE,
+        "cube(",
+        "]]]",
+        "module m( { }",
+        "a = ;",
+        "/* open",
+        "x = \"open",
+    ] {
         assert_eq!(parse(text).syntax().to_string(), text);
     }
 }
@@ -250,4 +258,35 @@ fn keyword_modules() {
     };
     assert_eq!(name, "for");
     assert_eq!(children.len(), 1);
+}
+
+#[test]
+fn lexer_warnings_and_overflow_losslessness() {
+    use crate::{SyntaxWarningKind, UnterminatedKind};
+
+    let src = "2b = 9007199254740993;\necho(1e400 + 1, \"\\q\\q\\q\\q\\q\\q\", 0XFF);";
+    let p = parse(src);
+    assert_eq!(p.syntax().to_string(), src);
+    assert!(p.errors().is_empty());
+    let kinds: Vec<_> = p.warnings().iter().map(|w| &w.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            &SyntaxWarningKind::DigitIdentifier("2b".into()),
+            &SyntaxWarningKind::ImpreciseInteger("9007199254740993".into()),
+            &SyntaxWarningKind::UndefinedEscape,
+            &SyntaxWarningKind::UndefinedEscape,
+            &SyntaxWarningKind::UndefinedEscape,
+            &SyntaxWarningKind::UndefinedEscape,
+            &SyntaxWarningKind::UndefinedEscape,
+            &SyntaxWarningKind::DigitIdentifier("0XFF".into()),
+        ]
+    );
+
+    let unterm = parse("echo(\"abc);");
+    assert_eq!(unterm.syntax().to_string(), "echo(\"abc);");
+    assert_eq!(
+        unterm.errors().first().and_then(|e| e.unterminated),
+        Some(UnterminatedKind::String)
+    );
 }

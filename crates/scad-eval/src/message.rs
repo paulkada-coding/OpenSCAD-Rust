@@ -5,6 +5,7 @@ use scad_syntax::ast::Span;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
     Echo,
+    Deprecated,
     Warning,
     Error,
     Trace,
@@ -14,6 +15,7 @@ impl Level {
     pub fn label(self) -> &'static str {
         match self {
             Self::Echo => "ECHO",
+            Self::Deprecated => "DEPRECATED",
             Self::Warning => "WARNING",
             Self::Error => "ERROR",
             Self::Trace => "TRACE",
@@ -36,6 +38,11 @@ pub struct EvalError {
     pub message: String,
     pub file: u32,
     pub span: Option<Span>,
+    /// Explicit 1-based line override (used for EOF errors like unterminated
+    /// strings/comments where OpenSCAD reports a synthetic line past EOF).
+    pub line_override: Option<u32>,
+    /// Optional preceding `ERROR:` line emitted right before `message`.
+    pub pre_error: Option<String>,
     /// Set for syntax errors; holds the parser's detailed explanation.
     pub parse_detail: Option<String>,
     /// Call stack when the error happened, innermost first, already
@@ -49,6 +56,8 @@ impl EvalError {
             message: message.into(),
             file,
             span,
+            line_override: None,
+            pre_error: None,
             parse_detail: None,
             trace: Vec::new(),
         }

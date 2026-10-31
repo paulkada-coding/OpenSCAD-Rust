@@ -11,14 +11,16 @@ mod lower;
 mod parser;
 mod syntax_kind;
 
+pub use lexer::{SyntaxWarning, SyntaxWarningKind};
 pub use line_index::LineIndex;
-pub use parser::SyntaxError;
+pub use parser::{SyntaxError, UnterminatedKind};
 pub use rowan::{TextRange, TextSize};
 pub use syntax_kind::{ScadLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 
 pub struct Parse {
     green: rowan::GreenNode,
     errors: Vec<SyntaxError>,
+    warnings: Vec<SyntaxWarning>,
 }
 
 impl Parse {
@@ -30,14 +32,22 @@ impl Parse {
         &self.errors
     }
 
+    pub fn warnings(&self) -> &[SyntaxWarning] {
+        &self.warnings
+    }
+
     pub fn tree(&self) -> ast::SourceFile {
         lower::lower_file(&self.syntax())
     }
 }
 
 pub fn parse(text: &str) -> Parse {
-    let (green, errors) = parser::parse_text(text);
-    Parse { green, errors }
+    let (green, errors, warnings) = parser::parse_text(text);
+    Parse {
+        green,
+        errors,
+        warnings,
+    }
 }
 
 #[cfg(test)]

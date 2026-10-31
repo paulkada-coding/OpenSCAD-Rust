@@ -7,16 +7,24 @@
 use rowan::{Checkpoint, GreenNode, GreenNodeBuilder, TextRange, TextSize};
 
 use crate::SyntaxKind::{self, *};
-use crate::lexer::{Token, lex};
+use crate::lexer::{SyntaxWarning, Token, collect_warnings, lex};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnterminatedKind {
+    String,
+    Comment,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxError {
     pub message: String,
     pub range: TextRange,
+    pub unterminated: Option<UnterminatedKind>,
 }
 
-pub(crate) fn parse_text(text: &str) -> (GreenNode, Vec<SyntaxError>) {
+pub(crate) fn parse_text(text: &str) -> (GreenNode, Vec<SyntaxError>, Vec<SyntaxWarning>) {
     let tokens = lex(text);
+    let warnings = collect_warnings(&tokens);
     let mut parser = Parser {
         tokens,
         pos: 0,
@@ -25,7 +33,7 @@ pub(crate) fn parse_text(text: &str) -> (GreenNode, Vec<SyntaxError>) {
         errors: Vec::new(),
     };
     parser.source_file();
-    (parser.builder.finish(), parser.errors)
+    (parser.builder.finish(), parser.errors, warnings)
 }
 
 /// Tokens that can begin a module instantiation.
@@ -149,13 +157,17 @@ impl Parser<'_> {
     }
 
     fn error(&mut self, message: impl Into<String>) {
-        let found = self.tokens[self.pos..]
-            .iter()
-            .find(|t| !t.kind.is_trivia())
-            .map_or_else(|| "fine del file".to_string(), |t| format!("'{}'", t.text));
+        let next = self.tokens[self.pos..].iter().find(|t| !t.kind.is_trivia());
+        let unterminated = match next.map(|t| t.kind) {
+            Some(UNTERMINATED_STRING) => Some(UnterminatedKind::String),
+            Some(UNTERMINATED_COMMENT) => Some(UnterminatedKind::Comment),
+            _ => None,
+        };
+        let found = next.map_or_else(|| "fine del file".to_string(), |t| format!("'{}'", t.text));
         self.errors.push(SyntaxError {
             message: format!("{}, trovato {found}", message.into()),
             range: self.current_range(),
+            unterminated,
         });
     }
 
@@ -408,8 +420,22 @@ impl Parser<'_> {
 
     fn at_expr_start(&self) -> bool {
         self.at_any(&[
-            NUMBER, STRING, IDENT, TRUE_KW, FALSE_KW, UNDEF_KW, L_PAREN, L_BRACK, PLUS, MINUS,
-            BANG, TILDE, FUNCTION_KW, LET_KW, ASSERT_KW, ECHO_KW,
+            NUMBER,
+            STRING,
+            IDENT,
+            TRUE_KW,
+            FALSE_KW,
+            UNDEF_KW,
+            L_PAREN,
+            L_BRACK,
+            PLUS,
+            MINUS,
+            BANG,
+            TILDE,
+            FUNCTION_KW,
+            LET_KW,
+            ASSERT_KW,
+            ECHO_KW,
         ])
     }
 
