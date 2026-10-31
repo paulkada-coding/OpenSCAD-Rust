@@ -221,3 +221,58 @@ fn source_mapping_tracks_leaf_and_root_call() {
         .expect("node at cursor");
     assert!(matches!(hit.kind, NodeKind::Sphere { .. }));
 }
+
+#[test]
+fn defines_override_before_dependent_assignments_without_warning() {
+    let src = "a = 3;\nb = a * 10;\necho(a, b);\n";
+    let mut ev = Evaluator::new(EvalOptions {
+        defines: vec![("a".into(), "7".into()), ("extra".into(), "[1, 2]".into())],
+        ..EvalOptions::default()
+    });
+    let (_, err) = ev.run(Path::new("defs.scad"), src);
+    assert!(err.is_none());
+    let msgs: Vec<String> = ev
+        .messages()
+        .iter()
+        .map(|m| format!("{}: {}", m.level.label(), m.text))
+        .collect();
+    assert_eq!(msgs, ["ECHO: 7, 70"]);
+}
+
+#[test]
+fn source_cache_reuses_parsed_library_and_invalidates_on_change() {
+    let dir = std::env::temp_dir().join(format!("scadr_cache_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let lib_path = dir.join("mylib.scad");
+    std::fs::write(&lib_path, "function answer() = 42;\n").unwrap();
+
+    let cache = crate::SourceCache::new();
+    let opts = EvalOptions {
+        library_paths: vec![dir.clone()],
+        cache: Some(cache.clone()),
+        ..EvalOptions::default()
+    };
+
+    let main_src = "use <mylib.scad>\necho(answer());\n";
+    let mut ev1 = Evaluator::new(opts.clone());
+    let (_, err1) = ev1.run(Path::new("main.scad"), main_src);
+    assert!(err1.is_none());
+    assert_eq!(ev1.messages()[0].text, "42");
+    assert_eq!(cache.len(), 1);
+
+    // Second run hits the cache cleanly.
+    let mut ev2 = Evaluator::new(opts.clone());
+    let (_, err2) = ev2.run(Path::new("main.scad"), main_src);
+    assert!(err2.is_none());
+    assert_eq!(ev2.messages()[0].text, "42");
+
+    // Modifying the file on disk invalidates the cached AST automatically.
+    std::fs::write(&lib_path, "function answer() = 999;\n").unwrap();
+    let mut ev3 = Evaluator::new(opts);
+    let (_, err3) = ev3.run(Path::new("main.scad"), main_src);
+    assert!(err3.is_none());
+    assert_eq!(ev3.messages()[0].text, "999");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -1,13 +1,15 @@
 //! Tree-walking evaluator: runs statements in OpenSCAD's order (definitions,
 //! then assignments, then instantiations) and builds the geometry tree.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::SystemTime;
 
 use geometry::csg::{Node, NodeKind, SourceRef};
 use rustc_hash::FxHashMap;
 use scad_syntax::ast::*;
-use scad_syntax::{LineIndex, SyntaxWarningKind, UnterminatedKind};
+use scad_syntax::{LineIndex, SyntaxError, SyntaxWarning, SyntaxWarningKind, UnterminatedKind};
 
 use crate::builtins;
 use crate::message::{EvalError, EvalResult, Level, Message};
@@ -26,11 +28,121 @@ const MAX_INCLUDE_DEPTH: usize = 64;
 const STACK_RED_ZONE: usize = 128 * 1024;
 const STACK_SEGMENT: usize = 4 * 1024 * 1024;
 
+type FileStamp = (Option<SystemTime>, u64);
+
+struct CachedSource {
+    stamp: Option<FileStamp>,
+    text: Rc<str>,
+    index: LineIndex,
+    warnings: Vec<SyntaxWarning>,
+    errors: Vec<SyntaxError>,
+    tree: Rc<SourceFile>,
+}
+
+/// Reusable in-memory cache of parsed `.scad` files across multiple [`Evaluator`] runs.
+///
+/// Entries are keyed by canonical path and automatically invalidated whenever a file's
+/// modification timestamp or byte length changes on disk.
+#[derive(Clone, Default)]
+pub struct SourceCache {
+    entries: Rc<RefCell<FxHashMap<PathBuf, CachedSource>>>,
+}
+
+impl std::fmt::Debug for SourceCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourceCache")
+            .field("len", &self.entries.borrow().len())
+            .finish()
+    }
+}
+
+impl SourceCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.borrow().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.borrow().is_empty()
+    }
+
+    pub fn clear(&self) {
+        self.entries.borrow_mut().clear();
+    }
+}
+
+/// Returns standard OpenSCAD library search directories from `OPENSCADPATH` and
+/// the user's platform `OpenSCAD/libraries` folder (when it exists on disk).
+pub fn default_library_paths() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(env_paths) = std::env::var_os("OPENSCADPATH") {
+        for p in std::env::split_paths(&env_paths) {
+            if !p.as_os_str().is_empty() && !dirs.contains(&p) {
+                dirs.push(p);
+            }
+        }
+    }
+    for candidate in platform_user_library_dirs() {
+        if candidate.is_dir() && !dirs.contains(&candidate) {
+            dirs.push(candidate);
+        }
+    }
+    dirs
+}
+
+fn platform_user_library_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    #[cfg(windows)]
+    {
+        for var in ["OneDrive", "USERPROFILE"] {
+            if let Some(base) = std::env::var_os(var) {
+                let base = PathBuf::from(base);
+                out.push(base.join("Documents").join("OpenSCAD").join("libraries"));
+                out.push(base.join("Documenti").join("OpenSCAD").join("libraries"));
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            out.push(
+                PathBuf::from(home)
+                    .join("Documents")
+                    .join("OpenSCAD")
+                    .join("libraries"),
+            );
+        }
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+            out.push(PathBuf::from(xdg).join("OpenSCAD").join("libraries"));
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            out.push(
+                PathBuf::from(home)
+                    .join(".local")
+                    .join("share")
+                    .join("OpenSCAD")
+                    .join("libraries"),
+            );
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct EvalOptions {
     /// Directories searched by `include` / `use` after the including file's
-    /// own directory (like OPENSCADPATH).
+    /// own directory (like `OPENSCADPATH` and `-L`).
     pub library_paths: Vec<PathBuf>,
+    /// Top-level variable overrides (`-D name=expr` or Customizer values).
+    pub defines: Vec<(String, String)>,
+    /// Optional cross-run parsed file cache for fast live re-evaluation.
+    pub cache: Option<SourceCache>,
     /// Value of `$preview`.
     pub preview: bool,
     /// `--enable=object-function`: enables `object()` and `has_key()`.
@@ -39,6 +151,16 @@ pub struct EvalOptions {
     pub vector_swizzle: bool,
     /// `--enable=import-function`: enables `import()` as an expression function.
     pub import_function: bool,
+}
+
+impl EvalOptions {
+    /// Creates options pre-populated with [`default_library_paths`].
+    pub fn with_standard_libraries() -> Self {
+        Self {
+            library_paths: default_library_paths(),
+            ..Self::default()
+        }
+    }
 }
 
 pub struct SourceInfo {
@@ -216,15 +338,44 @@ impl Evaluator {
 
     // ---------------------------------------------------------- files
 
+    fn canonical_key(path: &Path) -> PathBuf {
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    fn file_stamp(path: &Path) -> Option<FileStamp> {
+        let meta = std::fs::metadata(path).ok()?;
+        Some((meta.modified().ok(), meta.len()))
+    }
+
     fn register_parsed(&mut self, path: &Path, text: &str) -> EvalResult<(Rc<SourceFile>, u32)> {
+        let key = Self::canonical_key(path);
+        let rc_text: Rc<str> = text.into();
+        let index = LineIndex::new(&rc_text);
+        let parse = scad_syntax::parse(&rc_text);
+        let warnings = parse.warnings().to_vec();
+        let errors = parse.errors().to_vec();
+        let tree = Rc::new(parse.tree());
+        self.register_cached_parts(path, key, rc_text, index, &warnings, &errors, tree)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn register_cached_parts(
+        &mut self,
+        display_path: &Path,
+        key: PathBuf,
+        text: Rc<str>,
+        index: LineIndex,
+        warnings: &[SyntaxWarning],
+        errors: &[SyntaxError],
+        tree: Rc<SourceFile>,
+    ) -> EvalResult<(Rc<SourceFile>, u32)> {
         let id = self.files.len() as u32;
         self.files.push(SourceInfo {
-            path: path.to_path_buf(),
-            text: text.into(),
-            index: LineIndex::new(text),
+            path: display_path.to_path_buf(),
+            text: text.clone(),
+            index,
         });
-        let parse = scad_syntax::parse(text);
-        for warning in parse.warnings() {
+        for warning in warnings {
             let line = self
                 .files
                 .get(id as usize)
@@ -252,7 +403,7 @@ impl Evaluator {
                 line,
             });
         }
-        if let Some(error) = parse.errors().first() {
+        if let Some(error) = errors.first() {
             let mut err = EvalError::new("Parser error: syntax error", id, Some(error.range));
             err.parse_detail = Some(error.message.clone());
             if let Some(unterm) = error.unterminated {
@@ -265,9 +416,8 @@ impl Evaluator {
             }
             return Err(err);
         }
-        let tree = Rc::new(parse.tree());
         self.reassignment_warnings(&tree.statements, id);
-        self.parsed.insert(path.to_path_buf(), (tree.clone(), id));
+        self.parsed.insert(key, (tree.clone(), id));
         Ok((tree, id))
     }
 
@@ -289,8 +439,48 @@ impl Evaluator {
         let Some(path) = self.resolve_path(relative) else {
             return Err(self.error(format!("Can't open include file '{relative}'."), span));
         };
-        if let Some(found) = self.parsed.get(&path) {
+        let key = Self::canonical_key(&path);
+        if let Some(found) = self.parsed.get(&key) {
             return Ok(found.clone());
+        }
+        if let Some(cache) = self.options.cache.clone() {
+            let current_stamp = Self::file_stamp(&key);
+            let hit = cache.entries.borrow().get(&key).and_then(|entry| {
+                (current_stamp.is_some() && entry.stamp == current_stamp).then(|| {
+                    (
+                        entry.text.clone(),
+                        entry.index.clone(),
+                        entry.warnings.clone(),
+                        entry.errors.clone(),
+                        entry.tree.clone(),
+                    )
+                })
+            });
+            if let Some((text, index, warnings, errors, tree)) = hit {
+                return self
+                    .register_cached_parts(&path, key, text, index, &warnings, &errors, tree);
+            }
+            let raw_text = std::fs::read_to_string(&path).map_err(|e| {
+                self.error(format!("Can't read file '{}': {e}", path.display()), span)
+            })?;
+            let text: Rc<str> = raw_text.into();
+            let index = LineIndex::new(&text);
+            let parse = scad_syntax::parse(&text);
+            let warnings = parse.warnings().to_vec();
+            let errors = parse.errors().to_vec();
+            let tree = Rc::new(parse.tree());
+            cache.entries.borrow_mut().insert(
+                key.clone(),
+                CachedSource {
+                    stamp: current_stamp,
+                    text: text.clone(),
+                    index: index.clone(),
+                    warnings: warnings.clone(),
+                    errors: errors.clone(),
+                    tree: tree.clone(),
+                },
+            );
+            return self.register_cached_parts(&path, key, text, index, &warnings, &errors, tree);
         }
         let text = std::fs::read_to_string(&path)
             .map_err(|e| self.error(format!("Can't read file '{}': {e}", path.display()), span))?;
@@ -341,7 +531,8 @@ impl Evaluator {
             self.warning(format!("Can't open library '{relative}'."), span);
             return Ok(());
         };
-        if let Some(library) = self.libraries.get(&path) {
+        let key = Self::canonical_key(&path);
+        if let Some(library) = self.libraries.get(&key) {
             scope.add_used(library.clone());
             return Ok(());
         }
@@ -358,7 +549,7 @@ impl Evaluator {
         // definitions or variables.
         let library = self.root_scope();
         // Remember the library before evaluating it so cyclic `use` stops.
-        self.libraries.insert(path, library.clone());
+        self.libraries.insert(key, library.clone());
 
         let saved_file = self.file;
         let saved_stack = std::mem::replace(&mut self.stack, vec![library.clone()]);
@@ -602,9 +793,38 @@ impl Evaluator {
             }
         }
 
+        let is_top = self
+            .top_scope
+            .as_ref()
+            .is_some_and(|top| Rc::ptr_eq(top, scope));
+
         // 2. Assignments, in order. A reassigned variable takes its last
         //    value at the position of its first assignment (the warning is
         //    emitted when the file is parsed, see `reassignment_warnings`).
+        let parsed_defines: Vec<(Name, Expr)> = if is_top && !self.options.defines.is_empty() {
+            self.options
+                .defines
+                .iter()
+                .filter_map(|(k, v)| {
+                    let snippet = format!("{k} = {v};");
+                    let parsed = scad_syntax::parse(&snippet);
+                    if !parsed.errors().is_empty() {
+                        return None;
+                    }
+                    parsed
+                        .tree()
+                        .statements
+                        .into_iter()
+                        .find_map(|s| match s.kind {
+                            StatementKind::Assignment(a) => Some((a.name, a.value)),
+                            _ => None,
+                        })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         let mut order: Vec<(&Name, &Expr, u32)> = Vec::new();
         let mut position: FxHashMap<&Name, usize> = FxHashMap::default();
         for &(statement, file) in items {
@@ -617,6 +837,17 @@ impl Evaluator {
                         position.insert(&assignment.name, order.len());
                         order.push((&assignment.name, &assignment.value, file));
                     }
+                }
+            }
+        }
+        for (def_name, def_expr) in &parsed_defines {
+            match position.get(def_name) {
+                Some(&i) => {
+                    order[i] = (def_name, def_expr, 0);
+                }
+                None => {
+                    position.insert(def_name, order.len());
+                    order.push((def_name, def_expr, 0));
                 }
             }
         }
@@ -637,10 +868,6 @@ impl Evaluator {
                     continue;
                 }
                 self.file = file;
-                let is_top = self
-                    .top_scope
-                    .as_ref()
-                    .is_some_and(|top| Rc::ptr_eq(top, scope));
                 let prev_root = if is_top {
                     self.current_root_call
                         .replace(self.source_ref(statement.span))

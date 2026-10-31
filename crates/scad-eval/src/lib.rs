@@ -8,7 +8,9 @@ mod print;
 mod scope;
 mod value;
 
-pub use eval::{EvalOptions, Evaluator, ResolvedSource, SourceInfo};
+pub use eval::{
+    EvalOptions, Evaluator, ResolvedSource, SourceCache, SourceInfo, default_library_paths,
+};
 pub use message::{EvalError, EvalResult, Level, Message};
 pub use value::{Arguments, RangeValue, Value};
 
