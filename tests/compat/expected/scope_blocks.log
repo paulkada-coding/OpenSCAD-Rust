@@ -1,0 +1,7 @@
+ECHO: "e in if", 3
+WARNING: Ignoring unknown variable "e" in file scope_blocks.scad, line 2
+ECHO: "e outside", undef
+ECHO: "f in for", 0
+ECHO: "f in for", 1
+WARNING: Ignoring unknown variable "f" in file scope_blocks.scad, line 4
+ECHO: "f outside", undef

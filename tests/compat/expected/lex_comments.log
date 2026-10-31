@@ -1,0 +1,2 @@
+ECHO: 1, 2
+ECHO: "/* not a comment */", "// nor this"

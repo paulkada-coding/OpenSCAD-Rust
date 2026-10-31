@@ -1,0 +1,9 @@
+WARNING: shift too large in file op_bitwise_bad.scad, line 1
+ECHO: undef
+WARNING: negative shift in file op_bitwise_bad.scad, line 2
+ECHO: undef
+WARNING: undefined operation (bool | number) in file op_bitwise_bad.scad, line 3
+ECHO: undef
+WARNING: undefined operation (string | number) in file op_bitwise_bad.scad, line 4
+ECHO: undef
+ECHO: false, true, true

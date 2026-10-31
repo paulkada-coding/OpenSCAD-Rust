@@ -1,0 +1,3 @@
+ECHO: "lib top-level echo"
+ECHO: "libf", 84
+ECHO: "libvar", 42

@@ -1,0 +1,5 @@
+ECHO: function(x) (x + 1)
+ECHO: function(x, y = 2) (x * y)
+ECHO: function() 42
+ECHO: "function(a) a"
+ECHO: [function(x) x]

@@ -1,0 +1,7 @@
+ECHO: 2
+ERROR: Assertion '(x > 0)' failed in file err_assert_in_function.scad, line 1
+TRACE: called by 'f' in file err_assert_in_function.scad, line 2
+TRACE: called by 'g' in file err_assert_in_function.scad, line 3
+TRACE: called by 'echo' in file err_assert_in_function.scad, line 3
+TRACE: call of 'm(a = 0, b = [1, 2])' in file err_assert_in_function.scad, line 3
+TRACE: called by 'm' in file err_assert_in_function.scad, line 5

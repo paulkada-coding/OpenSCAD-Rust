@@ -1,0 +1,5 @@
+ECHO: true, false, true, false, true, false, true, false
+ECHO: true, false, true, false, false
+ECHO: true, false
+WARNING: Ignoring unknown variable "len" in file builtin_is_functions.scad, line 4
+ECHO: false

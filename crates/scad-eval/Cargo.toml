@@ -1,0 +1,14 @@
+[package]
+name = "scad-eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+geometry = { version = "0.1.0", path = "../geometry" }
+rustc-hash = "2.1.3"
+scad-syntax = { version = "0.1.0", path = "../scad-syntax" }
+stacker = "0.1.25"
+
+[lints]
+workspace = true

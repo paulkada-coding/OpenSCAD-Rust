@@ -1,0 +1,11 @@
+group();
+group();
+group();
+group() {
+	group() {
+		sphere($fn = 0, $fa = 12, $fs = 2, r = 1, style = "orig");
+	}
+}
+group() {
+	group();
+}

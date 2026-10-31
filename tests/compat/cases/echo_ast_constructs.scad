@@ -1,0 +1,14 @@
+echo(function() let(x = 1, y = 2) x + y);
+echo(function() [for (i = [0:2:10]) if (i > 2) i else -i]);
+echo(function() [for (i = [0:2], j = [1]) let(k = i) each [k, j]]);
+echo(function() [for (i = 0; i < 3; i = i + 1) i]);
+echo(function() [for (a = [1]) for (b = [2]) a + b]);
+echo(function() v[0].x + v.y[1]);
+echo(function() f(1, b = 2)(3));
+echo(function() function(y) y * 2);
+echo(function() echo("e") assert(true, "m") 1);
+echo(function() a ? b ? 1 : 2 : c ? 3 : 4);
+echo(function() [1:3], function() [1:2:3], function() [], function() [[]], function() undef, function() true);
+echo(function() [if (1) 2, 3, if (0) 4 else 5]);
+echo(function() [each [1, 2], 3]);
+echo(function() 1e6 + 0.1 + 1/3 + 1e-7 + 123456789 + 0x10 + 1.5e300);

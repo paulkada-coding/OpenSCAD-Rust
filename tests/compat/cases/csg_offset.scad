@@ -1,0 +1,10 @@
+offset(r = 1) square();
+offset(delta = 1) square();
+offset(delta = 1, chamfer = true) square();
+offset(1) square();
+offset() square();
+offset(r = 0) square();
+offset(delta = 0) square();
+offset(-1) square();
+offset(r = 1, chamfer = true) square();
+offset(r = 2, $fn = 8) square();

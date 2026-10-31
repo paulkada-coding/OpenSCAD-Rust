@@ -1,0 +1,2 @@
+WARNING: Unable to convert points = undef to a vector of coordinates in file csg_polygon.scad, line 4
+WARNING: Unable to convert points = "x" to a vector of coordinates in file csg_polygon.scad, line 5

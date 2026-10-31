@@ -1,0 +1,5 @@
+ECHO: [1, 2]
+ECHO: [1, undef]
+ECHO: [1, 2]
+ECHO: [undef, 2]
+ECHO: [undef, undef]

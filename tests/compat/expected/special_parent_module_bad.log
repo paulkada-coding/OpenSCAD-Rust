@@ -1,0 +1,6 @@
+WARNING: Parent module index (2) greater than the number of modules on the stack in file special_parent_module_bad.scad, line 1
+ECHO: undef
+WARNING: Parent module index (0) greater than the number of modules on the stack in file special_parent_module_bad.scad, line 3
+ECHO: undef
+WARNING: Parent module index (1) greater than the number of modules on the stack in file special_parent_module_bad.scad, line 4
+ECHO: undef

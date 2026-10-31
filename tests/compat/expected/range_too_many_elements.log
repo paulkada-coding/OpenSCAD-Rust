@@ -1,0 +1,6 @@
+ECHO: 999999
+WARNING: Bad range parameter in for statement: too many elements (1000000) in file range_too_many_elements.scad, line 3
+ECHO: 0
+WARNING: Bad range parameter in for statement: too many elements (1000000001) in file range_too_many_elements.scad, line 4
+ECHO: 0
+ECHO: [0 : 1 : 1e+7]

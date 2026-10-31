@@ -1,0 +1,3 @@
+ECHO: "child $y", "from ch"
+ECHO: "child $z", "outer"
+ECHO: "child $w", "setter"

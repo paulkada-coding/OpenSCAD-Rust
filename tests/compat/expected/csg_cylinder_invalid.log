@@ -1,0 +1,3 @@
+WARNING: Ignoring radius variable "r" as diameter "d" is defined too. in file csg_cylinder_invalid.scad, line 3
+WARNING: Ignoring radius variable "r1" as diameter "d1" is defined too. in file csg_cylinder_invalid.scad, line 4
+WARNING: Cylinder parameters ambiguous in file csg_cylinder_invalid.scad, line 5

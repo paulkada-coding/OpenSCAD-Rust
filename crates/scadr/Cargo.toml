@@ -1,0 +1,13 @@
+[package]
+name = "scadr"
+description = "Command-line OpenSCAD engine: evaluates .scad files and exports the result"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+geometry = { version = "0.1.0", path = "../geometry" }
+scad-eval = { version = "0.1.0", path = "../scad-eval" }
+
+[lints]
+workspace = true

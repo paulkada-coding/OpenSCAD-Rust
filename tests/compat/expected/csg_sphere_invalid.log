@@ -1,0 +1,2 @@
+WARNING: sphere(style="ico") is not "orig" or "octa", using "orig" in file csg_sphere_invalid.scad, line 4
+WARNING: (..., style=1) Invalid type: expected string, found number in file csg_sphere_invalid.scad, line 5

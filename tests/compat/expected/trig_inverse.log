@@ -1,0 +1,3 @@
+ECHO: true, true, true, true, true, true
+ECHO: 180, -180, 0, -90, 90, -90
+ECHO: nan, 180, nan, -90, 17.4576, 72.5424, 16.6992, 36.8699

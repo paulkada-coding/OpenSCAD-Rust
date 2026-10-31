@@ -1,0 +1,4 @@
+WARNING: Ignoring unknown variable "d0" in file scope_undefined_variable.scad, line 2
+WARNING: Ignoring unknown variable "undefined_var" in file scope_undefined_variable.scad, line 1
+ECHO: undef
+ECHO: undef

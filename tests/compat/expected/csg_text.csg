@@ -1,0 +1,5 @@
+text(text = "Hi", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", script = "Latn", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = "Hi", size = 5, spacing = 1.1, font = "Liberation Sans:style=Bold", direction = "ltr", language = "en", script = "Lati", halign = "center", valign = "center", $fn = 10, $fa = 12, $fs = 2);
+text(text = "ab", size = 2.5, spacing = 0.9, font = "", direction = "ttb", language = "en", script = "Latn", halign = "right", valign = "baseline", $fn = 0, $fa = 12, $fs = 2);
+text(text = "a"b\c", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", script = "Latn", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = "1e+6", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", script = "Latn", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);

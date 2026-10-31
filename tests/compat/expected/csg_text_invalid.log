@@ -1,0 +1,1 @@
+WARNING: text(..., text=5) Invalid type: expected string, found number in file csg_text_invalid.scad, line 1

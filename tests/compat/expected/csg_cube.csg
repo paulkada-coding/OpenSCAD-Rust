@@ -1,0 +1,5 @@
+cube(size = [1, 1, 1], center = false);
+cube(size = [2, 2, 2], center = false);
+cube(size = [1, 2, 3], center = true);
+cube(size = [1.5, 2, 0.333333], center = false);
+cube(size = [4, 4, 4], center = true);

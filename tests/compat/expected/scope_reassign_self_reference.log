@@ -1,0 +1,4 @@
+WARNING: "z" was assigned on line 1 but was overwritten in file scope_reassign_self_reference.scad, line 2
+WARNING: Ignoring unknown variable "z" in file scope_reassign_self_reference.scad, line 2
+WARNING: undefined operation (undefined + number) in file scope_reassign_self_reference.scad, line 2
+ECHO: undef

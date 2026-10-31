@@ -1,0 +1,3 @@
+ECHO: "libf", 84
+WARNING: Ignoring unknown variable "libvar" in file use_basic.scad, line 3
+ECHO: "libvar", undef

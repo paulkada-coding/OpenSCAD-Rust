@@ -1,0 +1,2 @@
+ERROR: Assertion failed in file err_assert_no_args.scad, line 1
+TRACE: called by 'assert' in file err_assert_no_args.scad, line 1

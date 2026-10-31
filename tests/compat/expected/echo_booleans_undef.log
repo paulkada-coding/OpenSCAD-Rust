@@ -1,0 +1,3 @@
+ECHO: true, false, undef
+ECHO: [true, false, undef]
+ECHO: "true", "false", "undef"

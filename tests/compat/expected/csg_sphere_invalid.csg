@@ -1,0 +1,5 @@
+sphere($fn = 0, $fa = 12, $fs = 2, r = 1, style = "orig");
+sphere($fn = 0, $fa = 12, $fs = 2, r = -1, style = "orig");
+sphere($fn = 0, $fa = 12, $fs = 2, r = 0, style = "orig");
+sphere($fn = 0, $fa = 12, $fs = 2, r = 1, style = "orig");
+sphere($fn = 0, $fa = 12, $fs = 2, r = 1, style = "orig");

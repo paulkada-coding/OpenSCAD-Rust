@@ -1,0 +1,2 @@
+ECHO: 3, "é", "😀", "a", undef, undef, "😀"
+ECHO: 0, "a", "c"

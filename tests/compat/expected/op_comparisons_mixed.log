@@ -1,0 +1,10 @@
+WARNING: undefined operation (bool < number) in file op_comparisons_mixed.scad, line 1
+ECHO: undef
+WARNING: undefined operation (number < string) in file op_comparisons_mixed.scad, line 2
+ECHO: undef
+WARNING: undefined operation (undefined < number) in file op_comparisons_mixed.scad, line 3
+ECHO: undef
+WARNING: undefined operation (number > bool) in file op_comparisons_mixed.scad, line 4
+ECHO: undef
+WARNING: undefined operation (vector < number) in file op_comparisons_mixed.scad, line 5
+ECHO: undef

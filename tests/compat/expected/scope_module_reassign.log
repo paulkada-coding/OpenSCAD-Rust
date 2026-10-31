@@ -1,0 +1,3 @@
+WARNING: "x" was assigned on line 2 but was overwritten in file scope_module_reassign.scad, line 4
+WARNING: "y" was assigned on line 7 but was overwritten in file scope_module_reassign.scad, line 7
+ECHO: "x", 2

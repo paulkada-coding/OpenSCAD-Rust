@@ -1,0 +1,4 @@
+ECHO: a = 1, b = "s", c = [1, 2]
+ECHO: 1, b = 2, 3
+ECHO: x = undef
+ECHO: $fn = 3

@@ -1,0 +1,2 @@
+ERROR: Parser error: syntax error in file lib/badlib.scad, line 2
+Can't parse file 'err_parse_in_include.scad'!

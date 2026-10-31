@@ -1,0 +1,8 @@
+multmatrix([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+	cube(size = [1, 1, 1], center = false);
+}
+cube(size = [1, -0, 1], center = false);
+polygon(points = [[-0, 0], [1, 0], [0, 1]], paths = undef, convexity = 1);
+color([-0, 0, 0, 1]) {
+	cube(size = [1, 1, 1], center = false);
+}

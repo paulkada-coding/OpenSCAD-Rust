@@ -1,0 +1,6 @@
+WARNING: begin is greater than the end, but step is positive in file range_reversed_and_empty.scad, line 1
+ECHO: []
+ECHO: [0, -1, -2, -3]
+WARNING: begin is smaller than the end, but step is negative in file range_reversed_and_empty.scad, line 3
+ECHO: []
+ECHO: [3], [3], [-2, -1, 0]

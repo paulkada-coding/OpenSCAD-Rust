@@ -1,0 +1,4 @@
+WARNING: Unable to convert cube(size=[1, 2], ...) parameter to a number or a vec3 of numbers in file csg_cube_invalid.scad, line 2
+WARNING: Unable to convert cube(size="a", ...) parameter to a number or a vec3 of numbers in file csg_cube_invalid.scad, line 3
+WARNING: Too many unnamed arguments supplied in file csg_cube_invalid.scad, line 9
+WARNING: variable "sizee" not specified as parameter in file csg_cube_invalid.scad, line 10

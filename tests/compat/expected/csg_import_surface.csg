@@ -1,0 +1,8 @@
+import(file = "data/tri.stl", origin = [0, 0], scale = 1, center = false, convexity = 1, $fn = 0, $fa = 12, $fs = 2, timestamp = 0);
+import(file = "data/tri.stl", origin = [0, 0], scale = 1, center = false, convexity = 3, $fn = 0, $fa = 12, $fs = 2, timestamp = 0);
+import(file = "data/missing.stl", origin = [0, 0], scale = 1, center = false, convexity = 1, $fn = 0, $fa = 12, $fs = 2, timestamp = 0);
+import(file = "data/x.svg", origin = [0, 0], dpi = 96, scale = 1, center = true, convexity = 1, $fn = 0, $fa = 12, $fs = 2, timestamp = 0);
+import(file = "data/x.dxf", layer = "a", origin = [1, 2], scale = 2, center = false, convexity = 1, $fn = 0, $fa = 12, $fs = 2, timestamp = 0);
+surface(file = "data/surf.dat", center = false, invert = false, timestamp = 0);
+surface(file = "data/surf.dat", center = true, invert = true, timestamp = 0);
+surface(file = "data/nofile.dat", center = false, invert = false, timestamp = 0);

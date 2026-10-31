@@ -1,0 +1,3 @@
+ERROR: Parser error: Unterminated string in file err_parse_unterminated_string.scad, line 4
+ERROR: Parser error: syntax error in file err_parse_unterminated_string.scad, line 4
+Can't parse file 'err_parse_unterminated_string.scad'!

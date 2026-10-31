@@ -1,0 +1,2 @@
+ECHO: 1
+WARNING: module cube() does not support child modules in file err_parse_missing_semicolon.scad, line 2

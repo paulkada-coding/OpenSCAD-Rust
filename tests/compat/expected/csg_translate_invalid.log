@@ -1,0 +1,4 @@
+WARNING: Unable to convert translate(5) parameter to a vec3 or vec2 of numbers in file csg_translate_invalid.scad, line 1
+WARNING: Unable to convert translate("a") parameter to a vec3 or vec2 of numbers in file csg_translate_invalid.scad, line 2
+WARNING: Unable to convert translate([1, 2, 3, 4]) parameter to a vec3 or vec2 of numbers in file csg_translate_invalid.scad, line 3
+WARNING: Unable to convert translate(undef) parameter to a vec3 or vec2 of numbers in file csg_translate_invalid.scad, line 4

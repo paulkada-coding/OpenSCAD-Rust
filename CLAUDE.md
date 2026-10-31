@@ -93,6 +93,18 @@ Principi:
   viste predefinite, prospettiva/ortogonale, griglia/assi/spigoli, info modello.
   Verificato: render headless e screenshot della GUI. Da provare a mano: interazione mouse.
   Prossimo passo: milestone 2 (linguaggio).
+- 2026-10-31: **milestone 2 in gran parte fatta.** Nuovi crate: `scad-syntax` (lexer logos, parser
+  rowan lossless, AST), `scad-eval` (interprete: scope lessicali + `$` dinamiche, tail call,
+  list comprehension, include/use, children, builtin, TRACE), `scadr` (CLI `scadr -o x.csg f.scad`),
+  `manifold` (Manifold v3.5.4 vendorizzato + shim C++ anti-eccezioni, 24 test; da usare in M3),
+  `tools/compat-runner` + `tests/compat` (215 casi con output di OpenSCAD Nightly) e
+  `docs/openscad-behavior.md` (regole osservate, da consultare sempre).
+  Compatibilità attuale: **181/215 casi (84%)**. Mancano: zeri negativi nelle matrici di
+  rotazione, warning di parametri non validi (translate/rotate/scale/mirror/polygon/color),
+  warning "does not support child modules", include mancante come warning, export text/import/
+  surface, warning del lexer (escape, identificatori con cifre, interi grandi, overflow),
+  rands mt19937, oggetti/swizzle (feature sperimentali).
+  Comando: `cargo build -p scadr; cargo run -p compat-runner -- -v`.
 
 ## Comandi
 

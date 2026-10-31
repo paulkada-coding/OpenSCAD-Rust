@@ -1,0 +1,25 @@
+[package]
+name = "manifold"
+description = "Safe wrapper around the Manifold CSG kernel (3D booleans, CrossSection 2D)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+# Native library guard: prevents linking a second copy of Manifold
+# (e.g. through manifold-csg-sys, which uses the same key).
+links = "manifold"
+build = "build.rs"
+
+[dependencies]
+geometry = { version = "0.1.0", path = "../geometry" }
+thiserror = "2.0.21"
+
+[build-dependencies]
+cc = "1.10.0"
+cmake = "0.1.54"
+
+# The workspace denies `unsafe_code`, but this crate is an FFI wrapper:
+# it keeps the clippy settings and audits every unsafe block instead.
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"

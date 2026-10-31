@@ -1,0 +1,5 @@
+ECHO: true, false, false, true, false, false, true, false, false, true, false, false, true
+ECHO: false, false
+ECHO: true, false, false, true, false, true
+ECHO: 1, 2, 2, 1, 2, 1
+ECHO: 2, 3

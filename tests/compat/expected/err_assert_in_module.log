@@ -1,0 +1,4 @@
+ERROR: Assertion '(x > 0)' failed: "x must be positive" in file err_assert_in_module.scad, line 1
+TRACE: called by 'assert' in file err_assert_in_module.scad, line 1
+TRACE: call of 'm(x = -1)' in file err_assert_in_module.scad, line 1
+TRACE: called by 'm' in file err_assert_in_module.scad, line 4

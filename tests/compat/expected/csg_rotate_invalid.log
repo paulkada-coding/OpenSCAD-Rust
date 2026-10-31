@@ -1,0 +1,2 @@
+WARNING: Problem converting rotate(a="a") parameter in file csg_rotate_invalid.scad, line 1
+WARNING: Problem converting rotate(a=undef) parameter in file csg_rotate_invalid.scad, line 2

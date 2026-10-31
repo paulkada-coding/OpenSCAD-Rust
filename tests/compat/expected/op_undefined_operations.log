@@ -1,0 +1,20 @@
+WARNING: undefined operation (vector + number) in file op_undefined_operations.scad, line 1
+ECHO: undef
+WARNING: undefined operation (number + vector) in file op_undefined_operations.scad, line 2
+ECHO: undef
+WARNING: undefined operation (vector + undefined) in file op_undefined_operations.scad, line 3
+ECHO: undef
+WARNING: undefined operation (undefined + number) in file op_undefined_operations.scad, line 4
+ECHO: undef
+WARNING: undefined operation (bool + number) in file op_undefined_operations.scad, line 5
+ECHO: undef
+WARNING: undefined operation (bool + bool) in file op_undefined_operations.scad, line 6
+ECHO: undef
+WARNING: undefined operation (vector % number) in file op_undefined_operations.scad, line 7
+ECHO: undef
+WARNING: undefined operation (vector / vector) in file op_undefined_operations.scad, line 8
+ECHO: undef
+WARNING: undefined operation (-string) in file op_undefined_operations.scad, line 9
+WARNING: undefined operation (-bool) in file op_undefined_operations.scad, line 9
+WARNING: undefined operation (-undefined) in file op_undefined_operations.scad, line 9
+ECHO: undef, undef, undef

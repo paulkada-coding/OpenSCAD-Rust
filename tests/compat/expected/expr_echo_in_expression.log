@@ -1,0 +1,11 @@
+ECHO: "in expr"
+ECHO: "a", 1
+ECHO: b = 2
+ECHO: 2
+ECHO: 5
+ECHO: [1]
+ECHO: 6
+ECHO: "nested"
+ECHO: e = 1
+ECHO: "le", 1
+ECHO: 1

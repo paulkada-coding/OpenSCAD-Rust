@@ -1,0 +1,1 @@
+WARNING: Unable to convert square(size=[1, 2, 3], ...) parameter to a number or a vec2 of numbers in file csg_2d_invalid.scad, line 2

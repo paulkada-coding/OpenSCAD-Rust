@@ -1,0 +1,4 @@
+ECHO: "before"
+ERROR: Recursion detected calling function 'tail' in file func_tail_recursion_limit.scad, line 1
+TRACE: called by 'tail' in file func_tail_recursion_limit.scad, line 1
+TRACE: called by 'echo' in file func_tail_recursion_limit.scad, line 3

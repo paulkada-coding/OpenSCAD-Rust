@@ -1,0 +1,9 @@
+WARNING: Experimental builtin function 'object' is not enabled in file builtin_object_disabled.scad, line 1
+WARNING: Ignoring unknown function 'object' in file builtin_object_disabled.scad, line 1
+ECHO: undef
+WARNING: Experimental builtin function 'has_key' is not enabled in file builtin_object_disabled.scad, line 2
+WARNING: Ignoring unknown function 'has_key' in file builtin_object_disabled.scad, line 2
+ECHO: undef
+WARNING: Experimental builtin function 'import' is not enabled in file builtin_object_disabled.scad, line 3
+WARNING: Ignoring unknown function 'import' in file builtin_object_disabled.scad, line 3
+ECHO: undef

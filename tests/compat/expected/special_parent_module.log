@@ -1,0 +1,7 @@
+ECHO: "a", 2, "a", "b", 1
+ECHO: "in b child", 2, "a"
+WARNING: Parent module index (1) greater than the number of modules on the stack in file special_parent_module.scad, line 2
+ECHO: "a", 1, "a", undef, 1
+ECHO: "a", 2, "a", "a", 0
+WARNING: Parent module index (1) greater than the number of modules on the stack in file special_parent_module.scad, line 2
+ECHO: "a", 1, "a", undef, 0

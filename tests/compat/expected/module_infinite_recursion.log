@@ -1,0 +1,26 @@
+ERROR: Recursion detected calling module 'm' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE:   *** Excluding N frames ***
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 1
+TRACE: call of 'm()' in file module_infinite_recursion.scad, line 1
+TRACE: called by 'm' in file module_infinite_recursion.scad, line 2

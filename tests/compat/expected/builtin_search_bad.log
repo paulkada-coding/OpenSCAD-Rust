@@ -1,0 +1,4 @@
+WARNING: Invalid entry in search vector at index 0, required number of values in the entry: 1. Invalid entry: "abc" in file builtin_search_bad.scad, line 1
+ECHO: []
+WARNING: search() number of parameters does not match: expected between 2 and 4, found 0 in file builtin_search_bad.scad, line 2
+ECHO: undef

@@ -1,0 +1,8 @@
+WARNING: vector*vector requires matching lengths (2 != 1) in file op_vector_products_bad.scad, line 1
+ECHO: undef
+WARNING: Multiplication is undefined on empty vectors in file op_vector_products_bad.scad, line 2
+ECHO: undef
+WARNING: matrix*vector requires matrix column count to match vector length (2 != 3) in file op_vector_products_bad.scad, line 3
+ECHO: undef
+WARNING: undefined vector*vector multiplication where first elements are types string and number in file op_vector_products_bad.scad, line 4
+ECHO: undef

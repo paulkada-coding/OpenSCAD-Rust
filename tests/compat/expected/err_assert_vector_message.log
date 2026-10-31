@@ -1,0 +1,2 @@
+ERROR: Assertion 'false' failed: [1, "a"] in file err_assert_vector_message.scad, line 1
+TRACE: called by 'assert' in file err_assert_vector_message.scad, line 1

@@ -1,0 +1,3 @@
+ECHO: "before"
+ERROR: Assertion '(1 == 2)' failed in file err_assert_toplevel.scad, line 3
+TRACE: called by 'assert' in file err_assert_toplevel.scad, line 3

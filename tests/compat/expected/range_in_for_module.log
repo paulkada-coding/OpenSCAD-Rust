@@ -1,0 +1,8 @@
+WARNING: begin is greater than the end, but step is positive in file range_in_for_module.scad, line 1
+ECHO: "once", 0
+ECHO: "step", 0
+ECHO: "step", 2
+ECHO: "step", 4
+ECHO: "down", 2
+ECHO: "down", 1
+ECHO: "down", 0

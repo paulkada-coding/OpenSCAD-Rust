@@ -1,0 +1,13 @@
+[package]
+name = "scad-syntax"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+logos = "0.16.1"
+rowan = "0.17.0"
+smol_str = "0.3.7"
+
+[lints]
+workspace = true

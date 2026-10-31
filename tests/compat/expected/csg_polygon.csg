@@ -1,0 +1,5 @@
+polygon(points = [[0, 0], [1, 0], [0, 1]], paths = undef, convexity = 1);
+polygon(points = [[0, 0], [10, 0], [0, 10], [1, 1], [2, 1], [1, 2]], paths = [[0, 1, 2], [3, 4, 5]], convexity = 3);
+polygon(points = [[1e-05, 1e+06], [0.000123457, 0.333333], [0, 0]], paths = undef, convexity = 1);
+polygon(points = [], paths = undef, convexity = 1);
+polygon(points = [], paths = undef, convexity = 1);

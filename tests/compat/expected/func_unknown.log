@@ -1,0 +1,4 @@
+WARNING: Ignoring unknown function 'undefined_function2' in file func_unknown.scad, line 2
+WARNING: Ignoring unknown function 'undefined_function' in file func_unknown.scad, line 1
+ECHO: undef
+ECHO: undef

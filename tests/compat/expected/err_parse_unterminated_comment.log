@@ -1,0 +1,3 @@
+ERROR: Parser error: Unterminated comment in file err_parse_unterminated_comment.scad, line 5
+ERROR: Parser error: syntax error in file err_parse_unterminated_comment.scad, line 5
+Can't parse file 'err_parse_unterminated_comment.scad'!

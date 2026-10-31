@@ -1,0 +1,3 @@
+ECHO: ["abc", "q"q", "b\s", "t	t", "A"]
+ECHO: [["nested", "s"], "x"]
+ECHO: "["a", "b"c"]"

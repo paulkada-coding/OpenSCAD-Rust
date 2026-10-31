@@ -1,0 +1,7 @@
+cube(size = [1e-05, 0.0001, 1.5e-05], center = false);
+cube(size = [1e+06, 123456, 1.23457e+06], center = false);
+cube(size = [1.23456e+06, 1.23458e+06, 123456], center = false);
+cube(size = [inf, -inf, nan], center = false);
+cube(size = [1e+20, 1e+100, 1e-100], center = false);
+cube(size = [1e+06, 0.3, 9.0072e+15], center = false);
+sphere($fn = 1e+06, $fa = 12, $fs = 2, r = 1e-05, style = "orig");

@@ -1,0 +1,8 @@
+cylinder($fn = 0, $fa = 12, $fs = 2, h = 1, r1 = 1, r2 = 1, center = false);
+cylinder($fn = 0, $fa = 12, $fs = 2, h = 2, r1 = 1, r2 = 1, center = false);
+cylinder($fn = 0, $fa = 12, $fs = 2, h = 2, r1 = 1.5, r2 = 1.5, center = true);
+cylinder($fn = 0, $fa = 12, $fs = 2, h = 2, r1 = 1, r2 = 2, center = false);
+cylinder($fn = 6, $fa = 12, $fs = 2, h = 2, r1 = 0.5, r2 = 1, center = false);
+cylinder($fn = 0, $fa = 12, $fs = 2, h = 5, r1 = 1, r2 = 2, center = false);
+cylinder($fn = 0, $fa = 12, $fs = 2, h = 5, r1 = 1, r2 = 2, center = true);
+cylinder($fn = 0, $fa = 12, $fs = 2, h = 3, r1 = 1, r2 = 0, center = false);

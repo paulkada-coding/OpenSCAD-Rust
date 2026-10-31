@@ -1,0 +1,173 @@
+use std::path::Path;
+
+use geometry::csg::{Node, NodeKind};
+
+use crate::{EvalOptions, Evaluator, Level};
+
+fn run(source: &str) -> (Node, Vec<String>) {
+    let mut ev = Evaluator::new(EvalOptions::default());
+    let (nodes, error) = ev.run(Path::new("test.scad"), source);
+    if let Some(e) = error {
+        panic!("evaluation failed: {e}");
+    }
+    let node = Node::group("", nodes);
+    let lines = ev
+        .messages()
+        .iter()
+        .map(|m| format!("{}: {}", m.level.label(), m.text))
+        .collect();
+    (node, lines)
+}
+
+fn echoes(source: &str) -> Vec<String> {
+    run(source)
+        .1
+        .into_iter()
+        .filter_map(|l| l.strip_prefix("ECHO: ").map(str::to_string))
+        .collect()
+}
+
+fn echo1(expr: &str) -> String {
+    echoes(&format!("echo({expr});")).remove(0)
+}
+
+#[test]
+fn arithmetic_and_formatting() {
+    assert_eq!(echo1("1 + 2 * 3"), "7");
+    assert_eq!(echo1("-2 ^ 2"), "-4");
+    assert_eq!(echo1("7 % 3, 1 / 4"), "1, 0.25");
+    assert_eq!(echo1("[1, 2] + [3, 4]"), "[4, 6]");
+    assert_eq!(echo1("\"a\", [\"b\"], true, undef"), "\"a\", [\"b\"], true, undef");
+    assert_eq!(echo1("x = 1"), "x = 1");
+    assert_eq!(echo1("str(\"a\", 1, [2])"), "\"a1[2]\"");
+}
+
+#[test]
+fn assignments_are_hoisted_and_last_wins() {
+    let out = echoes("echo(a); a = 1; b = a + 1; a = 5; echo(b);");
+    assert_eq!(out, ["5", "6"]);
+}
+
+#[test]
+fn functions_and_recursion() {
+    let out = echoes(
+        "function fact(n) = n <= 1 ? 1 : n * fact(n - 1);
+         function sum(n, acc = 0) = n == 0 ? acc : sum(n - 1, acc + n);
+         echo(fact(10), sum(200000));",
+    );
+    assert_eq!(out, ["3.6288e+6, 2.00001e+10"]);
+}
+
+#[test]
+fn function_literals_and_closures() {
+    let out = echoes(
+        "add = function(a) function(b) a + b;
+         add3 = add(3);
+         echo(add3(4), (function(x) x * 2)(5));",
+    );
+    assert_eq!(out, ["7, 10"]);
+}
+
+#[test]
+fn list_comprehensions() {
+    assert_eq!(echo1("[for (i = [0:4]) if (i % 2 == 0) i]"), "[0, 2, 4]");
+    assert_eq!(echo1("[for (i = [1:2], j = [1:2]) i * 10 + j]"), "[11, 12, 21, 22]");
+    assert_eq!(echo1("[each [1, 2], each [3:4], 5]"), "[1, 2, 3, 4, 5]");
+    assert_eq!(echo1("[for (i = 0, j = 1; i < 4; i = i + 1, j = j * 2) j]"), "[1, 2, 4, 8]");
+    assert_eq!(echo1("[let (a = 2, b = a * 3) b]"), "[6]");
+    assert_eq!(echo1("[for (c = \"ab\") c]"), "[\"a\", \"b\"]");
+}
+
+#[test]
+fn let_and_ternary_scopes() {
+    assert_eq!(echo1("let (a = 1, b = a + 1) [a, b]"), "[1, 2]");
+    assert_eq!(echo1("true ? 1 : 2, false ? 1 : 2"), "1, 2");
+}
+
+#[test]
+fn special_variables_are_dynamic() {
+    let out = echoes(
+        "module show() echo($fn);
+         module outer() { $fn = 7; children(); }
+         outer() show();
+         show($fn = 3);
+         show();",
+    );
+    assert_eq!(out, ["7", "3", "0"]);
+}
+
+#[test]
+fn modules_and_children() {
+    let (root, _) = run(
+        "module pair() { children(0); translate([5, 0, 0]) children(1); }
+         pair() { cube(1); sphere(2); }",
+    );
+    let pair = &root.children[0];
+    assert!(matches!(&pair.kind, NodeKind::Group { name } if name == "pair"));
+    assert_eq!(pair.children.len(), 2);
+}
+
+#[test]
+fn children_count() {
+    let out = echoes("module m() echo($children); m() { cube(); sphere(); } m();");
+    assert_eq!(out, ["2", "0"]);
+}
+
+#[test]
+fn for_module_and_if() {
+    let (root, _) = run("for (i = [0:2]) translate([i, 0, 0]) cube(1); if (false) cube(); else sphere();");
+    assert_eq!(root.children[0].children.len(), 3);
+    let if_node = &root.children[1];
+    assert!(matches!(if_node.children[0].kind, NodeKind::Sphere { .. }));
+}
+
+#[test]
+fn primitives_resolve_parameters() {
+    let (root, _) = run("cylinder(h = 10, d = 4, center = true, $fn = 12); cube([1, 2, 3]);");
+    match &root.children[0].kind {
+        NodeKind::Cylinder {
+            h,
+            r1,
+            r2,
+            center,
+            tessellation,
+        } => {
+            assert_eq!((*h, *r1, *r2, *center), (10.0, 2.0, 2.0, true));
+            assert_eq!(tessellation.fn_, 12.0);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(root.children[1].kind, NodeKind::Cube { .. }));
+}
+
+#[test]
+fn unknown_names_warn() {
+    let (_, lines) = run("echo(nope); foo(); x = bar(1);");
+    assert!(lines.iter().any(|l| l.contains("unknown variable \"nope\"")));
+    assert!(lines.iter().any(|l| l.contains("unknown module 'foo'")));
+    assert!(lines.iter().any(|l| l.contains("unknown function 'bar'")));
+}
+
+#[test]
+fn assert_failure_stops() {
+    let mut ev = Evaluator::new(EvalOptions::default());
+    let (_, err) = ev.run(Path::new("t.scad"), "x = 1;\nassert(x > 2, \"too small\");");
+    let err = err.expect("assert must fail");
+    assert!(err.message.contains("Assertion '(x > 2)' failed"), "{}", err.message);
+    assert!(ev.messages().iter().all(|m| m.level != Level::Error));
+}
+
+#[test]
+fn deep_recursion_does_not_overflow() {
+    // Not a tail call: exercises stack growth.
+    let out = echoes("function count(n) = n == 0 ? 0 : 1 + count(n - 1); echo(count(9000));");
+    assert_eq!(out, ["9000"]);
+}
+
+#[test]
+fn modifiers_and_disable() {
+    let (root, _) = run("*cube(); #sphere(); %cylinder();");
+    assert_eq!(root.children.len(), 2);
+    assert!(root.children[0].modifiers.highlight);
+    assert!(root.children[1].modifiers.background);
+}

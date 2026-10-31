@@ -1,0 +1,3 @@
+WARNING: Ignoring unknown module 'undefined_module' in file module_unknown.scad, line 1
+WARNING: Ignoring unknown module 'undefined_module' in file module_unknown.scad, line 2
+ECHO: "after"

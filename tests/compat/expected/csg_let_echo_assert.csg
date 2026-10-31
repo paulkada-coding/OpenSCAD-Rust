@@ -1,0 +1,13 @@
+group() {
+	cube(size = [1, 1, 1], center = false);
+}
+group() {
+	cube(size = [1, 1, 1], center = false);
+}
+group() {
+	cube(size = [1, 1, 1], center = false);
+}
+group() {
+	cube(size = [2, 2, 2], center = false);
+	sphere($fn = 0, $fa = 12, $fs = 2, r = 2, style = "orig");
+}

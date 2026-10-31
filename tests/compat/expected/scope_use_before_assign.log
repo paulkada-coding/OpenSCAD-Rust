@@ -1,0 +1,3 @@
+WARNING: Ignoring unknown variable "c" in file scope_use_before_assign.scad, line 1
+WARNING: undefined operation (undefined + number) in file scope_use_before_assign.scad, line 1
+ECHO: "b", undef, "c", 5

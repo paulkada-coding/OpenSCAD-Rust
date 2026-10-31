@@ -1,0 +1,3 @@
+WARNING: Can't find include file 'lib/does_not_exist.scad'. in file include_missing.scad, line 1
+WARNING: Can't open library 'lib/does_not_exist_either.scad'. in file include_missing.scad, line 2
+ECHO: "after"

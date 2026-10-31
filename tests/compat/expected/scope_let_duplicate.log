@@ -1,0 +1,2 @@
+WARNING: Ignoring duplicate variable assignment "a" = 2 in file scope_let_duplicate.scad, line 1
+ECHO: 1

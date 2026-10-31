@@ -1,0 +1,17 @@
+group() {
+	group();
+}
+group() {
+	group() {
+		cube(size = [1, 1, 1], center = false);
+	}
+}
+group() {
+	group() {
+		group() {
+			group() {
+				cube(size = [1, 1, 1], center = false);
+			}
+		}
+	}
+}

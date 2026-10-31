@@ -1,0 +1,3 @@
+WARNING: "a" was assigned on line 2 but was overwritten in file scope_reassign_toplevel.scad, line 4
+ECHO: "a1", 2
+ECHO: "a2", 2

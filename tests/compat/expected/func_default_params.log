@@ -1,0 +1,10 @@
+ECHO: [1, 6]
+ECHO: "mdp", 1, 3
+WARNING: Ignoring unknown variable "a" in file func_default_params.scad, line 6
+WARNING: undefined operation (undefined + number) in file func_default_params.scad, line 6
+WARNING: Ignoring unknown variable "$q" in file func_default_params.scad, line 6
+ECHO: [1, undef, undef]
+WARNING: Ignoring unknown variable "a" in file func_default_params.scad, line 6
+WARNING: undefined operation (undefined + number) in file func_default_params.scad, line 6
+ECHO: [1, undef, 9]
+ECHO: 10

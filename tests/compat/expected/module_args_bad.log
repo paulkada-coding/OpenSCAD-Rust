@@ -1,0 +1,6 @@
+WARNING: variable "c" not specified as parameter in file module_args_bad.scad, line 2
+ECHO: "mdp", 1, 3
+WARNING: Too many unnamed arguments supplied in file module_args_bad.scad, line 3
+ECHO: "mdp", 1, 2
+WARNING: argument "b" supplied more than once in file module_args_bad.scad, line 4
+ECHO: "mdp", undef, 2

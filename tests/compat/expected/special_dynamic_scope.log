@@ -1,0 +1,3 @@
+ECHO: "m $fn", 7
+ECHO: "m $fn", 5
+ECHO: "child", 9

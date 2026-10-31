@@ -1,0 +1,6 @@
+ECHO: "scalar", 3
+ECHO: "str", "a"
+ECHO: "str", "b"
+ECHO: "vec", 1
+ECHO: "vec", [2, 3]
+ECHO: "bool", true

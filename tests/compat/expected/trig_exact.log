@@ -1,0 +1,5 @@
+ECHO: true, true, true, true, true
+ECHO: true, true, true, true
+ECHO: true, true, true, true, true, true
+ECHO: true, true, true, true, true
+ECHO: inf, -inf, -inf, 0.57735

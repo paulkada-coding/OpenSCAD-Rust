@@ -1,0 +1,6 @@
+ECHO: "abc"
+ECHO: ""
+ECHO: "q"q", "b\s", "t	t"
+ECHO: "line1
+line2"
+ECHO: "uni: é 😀 ü", "AB"

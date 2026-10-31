@@ -1,0 +1,23 @@
+render(convexity = 1) {
+	cube(size = [1, 1, 1], center = false);
+}
+render(convexity = 2) {
+	cube(size = [1, 1, 1], center = false);
+}
+render(convexity = 0) {
+	cube(size = [1, 1, 1], center = false);
+}
+hull() {
+	cube(size = [1, 1, 1], center = false);
+	sphere($fn = 0, $fa = 12, $fs = 2, r = 1, style = "orig");
+}
+hull();
+minkowski(convexity = 0) {
+	cube(size = [1, 1, 1], center = false);
+	sphere($fn = 0, $fa = 12, $fs = 2, r = 1, style = "orig");
+}
+minkowski(convexity = 3) {
+	cube(size = [1, 1, 1], center = false);
+	sphere($fn = 0, $fa = 12, $fs = 2, r = 1, style = "orig");
+}
+minkowski(convexity = 0);

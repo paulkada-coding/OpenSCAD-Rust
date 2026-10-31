@@ -1,0 +1,30 @@
+rotate_extrude(angle = 360, start = 180, convexity = 2, $fn = 0, $fa = 12, $fs = 2) {
+	multmatrix([[1, 0, 0, 2], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+		circle($fn = 0, $fa = 12, $fs = 2, r = 1);
+	}
+}
+rotate_extrude(angle = 180, start = 0, convexity = 4, $fn = 30, $fa = 12, $fs = 2) {
+	multmatrix([[1, 0, 0, 2], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+		square(size = [1, 1], center = false);
+	}
+}
+rotate_extrude(angle = -90, start = 90, convexity = 2, $fn = 0, $fa = 12, $fs = 2) {
+	multmatrix([[1, 0, 0, 2], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]) {
+		square(size = [1, 1], center = false);
+	}
+}
+rotate_extrude(angle = 360, start = 0, convexity = 2, $fn = 0, $fa = 12, $fs = 2) {
+	square(size = [1, 1], center = false);
+}
+rotate_extrude(angle = 360, start = 0, convexity = 2, $fn = 0, $fa = 12, $fs = 2) {
+	square(size = [1, 1], center = false);
+}
+rotate_extrude(angle = 90, start = 45, convexity = 2, $fn = 0, $fa = 12, $fs = 2) {
+	square(size = [1, 1], center = false);
+}
+rotate_extrude(angle = 360, start = 0, convexity = 2, $fn = 0, $fa = 12, $fs = 2) {
+	square(size = [1, 1], center = false);
+}
+rotate_extrude(angle = 360, start = 180, convexity = 2, $fn = 0, $fa = 12, $fs = 2) {
+	square(size = [1, 1], center = false);
+}

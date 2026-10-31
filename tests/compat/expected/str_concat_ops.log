@@ -1,0 +1,6 @@
+WARNING: undefined operation (string + string) in file str_concat_ops.scad, line 2
+ECHO: undef
+WARNING: undefined operation (string * number) in file str_concat_ops.scad, line 3
+ECHO: undef
+ECHO: "ab"
+ECHO: ["ab", "cd"]

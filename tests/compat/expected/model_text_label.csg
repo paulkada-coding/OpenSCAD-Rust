@@ -1,0 +1,8 @@
+union() {
+	cube(size = [60, 15, 2], center = false);
+	multmatrix([[1, 0, 0, 30], [0, 1, 0, 7.5], [0, 0, 1, 2], [0, 0, 0, 1]]) {
+		linear_extrude(height = 1, $fn = 0, $fa = 12, $fs = 2) {
+			text(text = "OpenSCAD", size = 6, spacing = 1, font = "", direction = "ltr", language = "en", script = "Latn", halign = "center", valign = "center", $fn = 0, $fa = 12, $fs = 2);
+		}
+	}
+}

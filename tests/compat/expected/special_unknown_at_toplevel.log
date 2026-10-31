@@ -1,0 +1,6 @@
+WARNING: Ignoring unknown variable "$children" in file special_unknown_at_toplevel.scad, line 1
+ECHO: undef
+WARNING: Ignoring unknown variable "$parent_modules" in file special_unknown_at_toplevel.scad, line 2
+ECHO: undef
+WARNING: Ignoring unknown variable "$undefined_special" in file special_unknown_at_toplevel.scad, line 3
+ECHO: undef

@@ -1,0 +1,13 @@
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 2
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 3
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 3
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 3
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 3
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 4
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 5
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 5
+WARNING: Undefined escape sequence in file str_bad_escapes.scad, line 5
+ECHO: "q"
+ECHO: "x7", "x80", "a", "0"
+ECHO: "u12"
+ECHO: "vbf"

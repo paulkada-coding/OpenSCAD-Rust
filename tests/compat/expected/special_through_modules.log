@@ -1,0 +1,3 @@
+ECHO: "p sees", 3
+ECHO: "p sees", 1
+ECHO: "r fx", 42

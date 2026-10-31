@@ -1,0 +1,10 @@
+rotate([90, 0, 0]) cube();
+rotate([10, 20, 30]) cube();
+rotate(a = [0, 90, 0]) cube();
+rotate([180, 0, 0]) cube();
+rotate([0, 180, 0]) cube();
+rotate([0, 0, 180]) cube();
+rotate([90, 90, 90]) cube();
+rotate([270, 0, 0]) cube();
+rotate([45, 45, 45]) cube();
+rotate([1, 2]) cube();

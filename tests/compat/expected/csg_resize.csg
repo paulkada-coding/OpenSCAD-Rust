@@ -1,0 +1,15 @@
+resize(newsize = [2,3,4], auto = [0,0,0], convexity = 0) {
+	cube(size = [1, 1, 1], center = false);
+}
+resize(newsize = [2,0,0], auto = [1,1,1], convexity = 0) {
+	cube(size = [1, 1, 1], center = false);
+}
+resize(newsize = [2,0,0], auto = [1,0,1], convexity = 0) {
+	cube(size = [1, 1, 1], center = false);
+}
+resize(newsize = [2,3,0], auto = [0,0,0], convexity = 0) {
+	square(size = [1, 1], center = false);
+}
+resize(newsize = [1.5,2.5,0.333333], auto = [0,0,0], convexity = 2) {
+	sphere($fn = 0, $fa = 12, $fs = 2, r = 1, style = "orig");
+}

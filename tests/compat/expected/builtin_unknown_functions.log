@@ -1,0 +1,6 @@
+WARNING: Ignoring unknown function 'keys' in file builtin_unknown_functions.scad, line 1
+WARNING: Ignoring unknown function 'typeof' in file builtin_unknown_functions.scad, line 1
+WARNING: Ignoring unknown function 'is_range' in file builtin_unknown_functions.scad, line 1
+WARNING: Ignoring unknown function 'sort' in file builtin_unknown_functions.scad, line 1
+WARNING: Ignoring unknown function 'sum' in file builtin_unknown_functions.scad, line 1
+ECHO: undef, undef, undef, undef, undef

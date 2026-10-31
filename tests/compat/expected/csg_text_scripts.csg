@@ -1,0 +1,8 @@
+text(text = "123", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = "Привет", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", script = "Cyrl", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = "日本", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", script = "Hani", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = "مرحبا", size = 10, spacing = 1, font = "", direction = "rtl", language = "en", script = "Arab", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = "Hi 123", size = 10, spacing = 1, font = "", direction = "rtl", language = "ar", script = "Arab", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = " ", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = "", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);
+text(text = "", size = 10, spacing = 1, font = "", direction = "ltr", language = "en", halign = "default", valign = "default", $fn = 0, $fa = 12, $fs = 2);

@@ -1,0 +1,7 @@
+DEPRECATED: Variable names starting with digits ("2b") will be removed in future releases. in file lex_identifiers.scad, line 5
+DEPRECATED: Variable names starting with digits ("2b") will be removed in future releases. in file lex_identifiers.scad, line 6
+DEPRECATED: Variable names starting with digits ("0XFF") will be removed in future releases. in file lex_identifiers.scad, line 7
+ECHO: 1, 2, 3
+ECHO: 5
+WARNING: Ignoring unknown variable "0XFF" in file lex_identifiers.scad, line 7
+ECHO: undef

@@ -1,0 +1,2 @@
+WARNING: module cube() does not support child modules in file module_with_child_not_supported.scad, line 1
+ECHO: "x"

@@ -1,0 +1,10 @@
+cube(-1);
+cube([1, 2]);
+cube("a");
+cube([1, -2, 3]);
+cube(undef);
+cube(0);
+cube(center = "yes");
+cube(size = [1, 2, 3], 5);
+cube(1, 2, 3);
+cube(sizee = 2);

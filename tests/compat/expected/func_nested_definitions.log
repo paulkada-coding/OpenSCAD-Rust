@@ -1,0 +1,5 @@
+ECHO: 101
+ECHO: "nested module"
+WARNING: Ignoring unknown function 'nf' in file func_nested_definitions.scad, line 8
+ECHO: undef
+WARNING: Ignoring unknown module 'nm' in file func_nested_definitions.scad, line 9

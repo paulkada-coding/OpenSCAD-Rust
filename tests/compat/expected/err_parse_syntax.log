@@ -1,0 +1,2 @@
+ERROR: Parser error: syntax error in file err_parse_syntax.scad, line 2
+Can't parse file 'err_parse_syntax.scad'!

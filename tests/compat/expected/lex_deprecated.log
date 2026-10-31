@@ -1,0 +1,3 @@
+WARNING: Ignoring unknown module 'assign' in file lex_deprecated.scad, line 1
+WARNING: Ignoring unknown module 'child' in file lex_deprecated.scad, line 2
+WARNING: Ignoring unknown module 'import_stl' in file lex_deprecated.scad, line 4

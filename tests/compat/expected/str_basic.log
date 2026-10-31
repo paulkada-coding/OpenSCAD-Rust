@@ -1,0 +1,4 @@
+ECHO: "1", "0.333333", "1e+6", "0", "a", "[1, "a", [2]]", ""
+ECHO: "1a[2]trueundef"
+ECHO: "abc", "123"
+ECHO: "[0 : 2 : 4]", "function(x) x"

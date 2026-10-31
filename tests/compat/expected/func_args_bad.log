@@ -1,0 +1,6 @@
+WARNING: Too many unnamed arguments supplied in file func_args_bad.scad, line 2
+ECHO: [1, 2]
+WARNING: variable "c" not specified as parameter in file func_args_bad.scad, line 3
+ECHO: [undef, undef]
+WARNING: argument "a" supplied more than once in file func_args_bad.scad, line 4
+ECHO: [2, undef]

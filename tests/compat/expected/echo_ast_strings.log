@@ -1,0 +1,2 @@
+ECHO: function(c = "s\"q\n") c
+ECHO: function() "t\tu\\\r"

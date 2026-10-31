@@ -1,0 +1,5 @@
+ECHO: [1, 2]
+ECHO: 3
+WARNING: Ignoring duplicate variable assignment "a" = 2 in file let_expressions.scad, line 3
+ECHO: 1
+ECHO: 6

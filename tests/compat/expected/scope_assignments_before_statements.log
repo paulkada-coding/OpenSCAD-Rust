@@ -1,0 +1,4 @@
+ECHO: "assign x"
+ECHO: "assign y", 5
+ECHO: "statement 1"
+ECHO: "statement 2", 5

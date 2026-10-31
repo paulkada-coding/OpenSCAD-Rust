@@ -1,0 +1,6 @@
+circle($fn = 10, $fa = 12, $fs = 2, r = 1);
+group() {
+	circle($fn = 3, $fa = 12, $fs = 2, r = 1);
+}
+circle($fn = 4, $fa = 12, $fs = 2, r = 1);
+sphere($fn = 10, $fa = 5, $fs = 0.1, r = 1, style = "orig");

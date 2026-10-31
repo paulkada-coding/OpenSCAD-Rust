@@ -1,0 +1,12 @@
+[package]
+name = "compat-runner"
+description = "Runs the OpenSCAD compatibility corpus (tests/compat) against our engine and compares the output with OpenSCAD"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+
+[lints]
+workspace = true

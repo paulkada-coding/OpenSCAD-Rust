@@ -1,0 +1,10 @@
+fv = function(x) x * 3;
+echo(fv(2));
+fv2 = function(x) fv(x) + 1;
+echo(fv2(1));
+echo((function(x) x + 1)(1));
+function outer(x) = let (inner = function(y) y + x) inner(1);
+echo(outer(10));
+adder = function(n) function(x) x + n;
+echo(adder(5)(10));
+echo(is_function(fv), is_function(5));

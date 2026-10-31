@@ -1,0 +1,3 @@
+ECHO: 3
+WARNING: Ignoring unknown variable "undef_in_sub" in file lib/sub/subdefs.scad, line 3
+ECHO: undef

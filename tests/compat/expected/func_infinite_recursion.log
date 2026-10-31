@@ -1,0 +1,3 @@
+ERROR: Recursion detected calling function 'f' in file func_infinite_recursion.scad, line 1
+TRACE: called by 'f' in file func_infinite_recursion.scad, line 1
+TRACE: called by 'echo' in file func_infinite_recursion.scad, line 2
