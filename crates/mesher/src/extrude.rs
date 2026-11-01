@@ -183,12 +183,6 @@ fn subdivide(contour: &[DVec2], counts: &[u32]) -> Vec<DVec2> {
     out
 }
 
-/// Which diagonal splits the side quads: from the lower vertex of an edge
-/// to the upper vertex of the next one, or the other way.
-fn twist_split_low(twist: f64) -> bool {
-    twist >= 0.0
-}
-
 pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
     if !(p.height > 0.0 && p.height.is_finite()) || region.is_empty() {
         return None;
@@ -251,8 +245,14 @@ pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
             let n = lo.len();
             for k in 0..n {
                 let k1 = (k + 1) % n;
-                // Twisted quads are not planar: split them like OpenSCAD.
-                if twist_split_low(p.twist) {
+                // Twisted quads are not planar: OpenSCAD splits them along the
+                // shorter diagonal (on ties: the lower one for a positive twist).
+                let v = |i: u32| b.ps.vertices[i as usize];
+                let d_low = v(lo[k]).distance_squared(v(hi[k1]));
+                let d_high = v(lo[k1]).distance_squared(v(hi[k]));
+                let tie = (d_low - d_high).abs() <= 1e-9 * (d_low + d_high);
+                let low = if tie { p.twist >= 0.0 } else { d_low < d_high };
+                if low {
                     b.face(&[lo[k], lo[k1], hi[k1]]);
                     b.face(&[lo[k], hi[k1], hi[k]]);
                 } else {
