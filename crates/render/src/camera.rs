@@ -4,7 +4,7 @@ use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
 // wgpu uses the DirectX clip-space convention (y up, depth 0..1).
 use glam::camera::rh::{proj::directx as proj, view};
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Projection {
@@ -136,6 +136,29 @@ impl OrbitCamera {
         }
     }
 
+    /// The ray through a point of the view, for picking: `ndc` is in
+    /// normalized device coordinates (x right, y up, both in -1..=1).
+    /// Returns `(origin, direction)`; everything visible at that point lies
+    /// on the ray at a positive parameter. Uses the same frustum as
+    /// [`Self::projection_matrix`].
+    pub fn ray(&self, ndc: Vec2, aspect: f32, scene_radius: f32) -> (Vec3, Vec3) {
+        let (forward, right, up) = (self.forward(), self.right(), self.up());
+        match self.projection {
+            Projection::Perspective => {
+                let half_h = (self.fov_y * 0.5).tan();
+                let dir = forward + right * (ndc.x * half_h * aspect) + up * (ndc.y * half_h);
+                (self.eye(), dir.normalize())
+            }
+            Projection::Orthographic => {
+                let half_h = self.view_height() * 0.5;
+                let offset = right * (ndc.x * half_h * aspect) + up * (ndc.y * half_h);
+                // The orthographic near plane is behind the eye.
+                let reach = self.distance + scene_radius * 2.0;
+                (self.eye() + offset - forward * reach, forward)
+            }
+        }
+    }
+
     /// Height of the view at the target distance, in world units.
     pub fn view_height(&self) -> f32 {
         2.0 * self.distance * (self.fov_y * 0.5).tan()
@@ -192,6 +215,36 @@ mod tests {
         cam.set_view(ViewPreset::Front);
         assert!(cam.forward().abs_diff_eq(Vec3::Y, 1e-6));
         assert!(cam.right().abs_diff_eq(Vec3::X, 1e-6));
+    }
+
+    #[test]
+    fn ray_matches_projection() {
+        let mut cam = OrbitCamera {
+            target: Vec3::new(3.0, -2.0, 1.0),
+            distance: 40.0,
+            ..Default::default()
+        };
+        let (aspect, radius) = (1.6, 25.0);
+        for projection in [Projection::Perspective, Projection::Orthographic] {
+            cam.projection = projection;
+            let view_proj = cam.projection_matrix(aspect, radius) * cam.view();
+            for ndc in [Vec2::ZERO, Vec2::new(0.5, -0.25), Vec2::new(-1.0, 1.0)] {
+                let (origin, dir) = cam.ray(ndc, aspect, radius);
+                for t in [1.0, 30.0] {
+                    let clip = view_proj * (origin + dir * t).extend(1.0);
+                    let projected = clip.truncate().truncate() / clip.w;
+                    assert!(
+                        projected.abs_diff_eq(ndc, 1e-4),
+                        "{projection:?} {ndc} -> {projected}"
+                    );
+                }
+            }
+        }
+        // The orthographic ray starts in front of everything visible.
+        cam.projection = Projection::Orthographic;
+        let (origin, _) = cam.ray(Vec2::ZERO, aspect, radius);
+        let clip = cam.projection_matrix(aspect, radius) * cam.view() * origin.extend(1.0);
+        assert!(clip.z / clip.w <= 1e-4);
     }
 
     #[test]

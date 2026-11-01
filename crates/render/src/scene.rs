@@ -4,7 +4,7 @@
 
 use bytemuck::{Pod, Zeroable};
 use geometry::Mesh;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use wgpu::util::DeviceExt;
 
 use crate::camera::{OrbitCamera, Projection};
@@ -46,6 +46,8 @@ impl Default for SceneStyle {
 /// Creases sharper than this are outlined.
 const FEATURE_EDGE_ANGLE_DEG: f64 = 25.0;
 const EDGE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.55];
+/// sRGB color of picked triangles: a saturated blue.
+const SELECTION_COLOR: [f32; 3] = [0.20, 0.55, 1.0];
 
 /// What a mesh represents, which decides how it is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +58,9 @@ pub enum LayerKind {
     Highlight,
     /// `%` subtrees: translucent grey, not part of the result.
     Background,
+    /// Picked triangles, drawn over the model in a color that stands out
+    /// from the yellow model, the green back faces and the red `#`.
+    Selection,
 }
 
 impl LayerKind {
@@ -63,6 +68,7 @@ impl LayerKind {
     fn translucent_color(self) -> Option<([f32; 3], f32)> {
         match self {
             Self::Model => None,
+            Self::Selection => Some((SELECTION_COLOR, 1.0)),
             // OpenSCAD's highlight color, RGB (255, 81, 81).
             Self::Highlight => Some(([1.0, 81.0 / 255.0, 81.0 / 255.0], 0.5)),
             Self::Background => Some(([0.71, 0.71, 0.71], 0.3)),
@@ -145,6 +151,8 @@ pub struct Scene {
     bind_group: wgpu::BindGroup,
     layer_bind_group_layout: wgpu::BindGroupLayout,
     layers: Vec<Layer>,
+    /// Picked triangles, drawn over the model.
+    selection: Option<Layer>,
     grid: Option<VertexBuffer>,
     axes: Option<VertexBuffer>,
     bounds: Option<(Vec3, Vec3)>,
@@ -337,6 +345,7 @@ impl Scene {
             bind_group,
             layer_bind_group_layout,
             layers: Vec::new(),
+            selection: None,
             grid: None,
             axes: None,
             bounds: None,
@@ -371,9 +380,11 @@ impl Scene {
         );
     }
 
-    /// Replaces everything shown. Empty meshes are skipped.
+    /// Replaces everything shown, clearing the selection. Empty meshes are
+    /// skipped.
     pub fn set_layers(&mut self, device: &wgpu::Device, layers: &[LayerMesh<'_>]) {
         self.layers.clear();
+        self.selection = None;
         let mut bounds = geometry::Aabb::EMPTY;
         for layer in layers {
             let mesh_bounds = layer.mesh.bounds();
@@ -390,6 +401,29 @@ impl Scene {
 
     pub fn clear_mesh(&mut self, device: &wgpu::Device) {
         self.set_layers(device, &[]);
+    }
+
+    /// Highlights some triangles of the model (normally a subset of its
+    /// triangles, so they cover it exactly), or clears the highlight.
+    pub fn set_selection(&mut self, device: &wgpu::Device, mesh: Option<&Mesh>) {
+        self.selection = mesh.filter(|m| !m.is_empty()).map(|mesh| {
+            self.upload_layer(
+                device,
+                &LayerMesh {
+                    kind: LayerKind::Selection,
+                    mesh,
+                },
+            )
+        });
+    }
+
+    /// The ray under a point of the image, for picking: `pos` and `size`
+    /// in the same units (pixels or points), `pos` from the top-left
+    /// corner. Returns `(origin, direction)` in world coordinates.
+    pub fn pick_ray(&self, camera: &OrbitCamera, size: [f32; 2], pos: [f32; 2]) -> (Vec3, Vec3) {
+        let (w, h) = (size[0].max(1.0), size[1].max(1.0));
+        let ndc = Vec2::new(pos[0] / w * 2.0 - 1.0, 1.0 - pos[1] / h * 2.0);
+        camera.ray(ndc, w / h, self.scene_radius())
     }
 
     fn upload_layer(&self, device: &wgpu::Device, layer: &LayerMesh<'_>) -> Layer {
@@ -493,7 +527,7 @@ impl Scene {
             0,
             bytemuck::bytes_of(&self.uniforms(camera, view_proj)),
         );
-        for layer in &self.layers {
+        for layer in self.layers.iter().chain(&self.selection) {
             queue.write_buffer(
                 &layer.uniform_buffer,
                 0,
@@ -538,6 +572,14 @@ impl Scene {
 
             pass.set_pipeline(&self.mesh_pipeline);
             for layer in &opaque {
+                pass.set_bind_group(1, &layer.bind_group, &[]);
+                pass.set_vertex_buffer(0, layer.triangles.buffer.slice(..));
+                pass.draw(0..layer.triangles.count, 0..1);
+            }
+            // Over the model's own faces (equal depth passes), under the
+            // edges so the shape stays readable.
+            if let Some(layer) = &self.selection {
+                pass.set_pipeline(&self.translucent_pipeline);
                 pass.set_bind_group(1, &layer.bind_group, &[]);
                 pass.set_vertex_buffer(0, layer.triangles.buffer.slice(..));
                 pass.draw(0..layer.triangles.count, 0..1);
