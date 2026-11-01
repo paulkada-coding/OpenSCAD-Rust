@@ -11,8 +11,10 @@ env_logger = "0.11.11"
 geometry = { version = "0.1.0", path = "../geometry" }
 log = "0.4.35"
 mesh-io = { version = "0.1.0", path = "../mesh-io" }
+mesher = { version = "0.1.0", path = "../mesher" }
 render = { version = "0.1.0", path = "../render" }
 rfd = "0.17.2"
+scad-eval = { version = "0.1.0", path = "../scad-eval" }
 serde = { version = "1.0.229", features = ["derive"] }
 
 [lints]

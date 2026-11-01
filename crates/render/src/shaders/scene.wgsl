@@ -16,6 +16,15 @@ struct Uniforms {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
+// Per-layer colors (model, highlighted `#`, background `%`).
+struct Layer {
+    // rgb + opacity.
+    front: vec4<f32>,
+    back: vec4<f32>,
+};
+
+@group(1) @binding(0) var<uniform> layer: Layer;
+
 // ---------------------------------------------------------------- background
 
 struct BgOut {
@@ -63,13 +72,14 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
 @fragment
 fn fs_mesh(in: MeshOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     var n = normalize(in.normal);
-    var base = u.model_color.rgb;
+    var color = layer.front;
     // Back faces are visible only through holes or inverted triangles:
     // tint them so such defects stand out, as OpenSCAD does.
     if (!front) {
         n = -n;
-        base = u.back_color.rgb;
+        color = layer.back;
     }
+    let base = color.rgb;
 
     var to_eye = normalize(u.eye.xyz - in.world);
     if (u.forward.w > 0.5) {
@@ -83,7 +93,7 @@ fn fs_mesh(in: MeshOut, @builtin(front_facing) front: bool) -> @location(0) vec4
     let spec = pow(max(dot(n, half_vec), 0.0), 48.0) * 0.18;
 
     let lit = base * (sky * 0.45 + vec3<f32>(key * 0.85 + fill * 0.18)) + vec3<f32>(spec);
-    return vec4<f32>(lit, 1.0);
+    return vec4<f32>(lit, color.a);
 }
 
 // --------------------------------------------------------------------- lines

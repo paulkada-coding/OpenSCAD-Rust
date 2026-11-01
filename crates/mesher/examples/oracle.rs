@@ -64,12 +64,9 @@ fn compare(dir: &Path, name: &str, code: &str) {
     if let Some(e) = err {
         println!("{name}: evaluation error: {e}");
     }
-    let options = RenderOptions {
-        files: ev.files().iter().map(|f| f.path.clone()).collect(),
-        ..RenderOptions::default()
-    };
+    let files: Vec<PathBuf> = ev.files().iter().map(|f| f.path.clone()).collect();
     let t = Instant::now();
-    let out = mesher::render(&nodes, &options);
+    let out = mesher::render_with_files(&nodes, &RenderOptions::default(), &files);
     let ours_time = t.elapsed().as_secs_f64();
     let (ours, warnings) = match out {
         Ok(out) => {

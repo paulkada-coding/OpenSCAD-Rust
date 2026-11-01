@@ -109,11 +109,6 @@ pub struct RenderOptions {
     /// Checked between operations; when set, rendering stops with
     /// [`RenderError::Cancelled`].
     pub cancel: Option<Arc<AtomicBool>>,
-    /// Paths of the source files, indexed by [`SourceRef::file`] (as listed
-    /// by the evaluator). `import()` and `surface()` resolve relative paths
-    /// against the directory of the file containing the call, like
-    /// OpenSCAD; without an entry, against the current directory.
-    pub files: Vec<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -127,8 +122,21 @@ pub enum RenderError {
 /// Renders the top-level nodes returned by the evaluator (their implicit
 /// union), honoring the `!`, `#`, `%` modifiers like OpenSCAD.
 pub fn render(nodes: &[Node], options: &RenderOptions) -> Result<RenderOutput, RenderError> {
+    render_with_files(nodes, options, &[])
+}
+
+/// Like [`render`], with the paths of the source files indexed by
+/// [`SourceRef::file`] (as listed by the evaluator): `import()` and
+/// `surface()` then resolve relative paths against the directory of the
+/// file containing the call, like OpenSCAD. Without an entry they resolve
+/// against the current directory.
+pub fn render_with_files(
+    nodes: &[Node],
+    options: &RenderOptions,
+    files: &[PathBuf],
+) -> Result<RenderOutput, RenderError> {
     // The kernel reports C++ exceptions (e.g. out of memory) as panics.
-    match std::panic::catch_unwind(AssertUnwindSafe(|| render_inner(nodes, options))) {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| render_inner(nodes, options, files))) {
         Ok(result) => result,
         Err(payload) => {
             let message = payload
@@ -152,8 +160,12 @@ fn find_root(nodes: &[Node]) -> Option<&Node> {
     })
 }
 
-fn render_inner(nodes: &[Node], options: &RenderOptions) -> Result<RenderOutput, RenderError> {
-    let mut ev = Evaluator::new(options);
+fn render_inner(
+    nodes: &[Node],
+    options: &RenderOptions,
+    files: &[PathBuf],
+) -> Result<RenderOutput, RenderError> {
+    let mut ev = Evaluator::new(options, files);
     let geom = match find_root(nodes) {
         Some(root) => ev.eval(root)?,
         None => ev.eval_top(nodes)?,

@@ -3,8 +3,7 @@
 
 use eframe::egui::{self, PointerButton, Rect, Sense, pos2};
 use eframe::egui_wgpu::{self, wgpu};
-use geometry::Mesh;
-use render::{OrbitCamera, Projection, Scene, SceneStyle, ViewPreset};
+use render::{LayerMesh, OrbitCamera, Projection, Scene, SceneStyle, ViewPreset};
 
 const ORBIT_SPEED: f32 = 0.008; // radians per point
 const ZOOM_SPEED: f32 = 0.0015; // per scrolled point
@@ -28,9 +27,18 @@ impl Viewport {
         }
     }
 
-    pub fn set_mesh(&mut self, device: &wgpu::Device, mesh: &Mesh) {
-        self.scene.set_mesh(device, mesh);
-        self.fit();
+    /// Replaces the displayed geometry; `fit` also frames the camera on it.
+    pub fn set_layers(&mut self, device: &wgpu::Device, layers: &[LayerMesh<'_>], fit: bool) {
+        self.scene.set_layers(device, layers);
+        if fit {
+            self.fit();
+        }
+        self.dirty = true;
+    }
+
+    pub fn clear(&mut self, device: &wgpu::Device) {
+        self.scene.clear_mesh(device);
+        self.dirty = true;
     }
 
     pub fn fit(&mut self) {

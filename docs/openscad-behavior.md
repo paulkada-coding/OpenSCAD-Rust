@@ -18,7 +18,8 @@ del corpus (CRLF → LF, percorso assoluto della cartella dei casi rimosso; vedi
   Su stdout non scrive nulla. Nessuna riga di statistiche con l'export `.csg`, `.echo`, `.ast`.
 - `-o x.echo`: i messaggi (ECHO/WARNING/ERROR…) vanno **nel file** e non su stderr. Il contenuto è
   identico alle righe che con `.csg` vanno su stderr. Anche gli errori di parsing finiscono nel file.
-- `-o x.stl` (render completo) aggiunge righe di statistiche su stderr, da filtrare:
+- `-o x.stl` (render completo) aggiunge righe di statistiche su stderr, da filtrare (export della
+  geometria, messaggi ed exit code in dettaglio: §16):
   ```
   Geometries in cache: 1
   Geometry cache size in bytes: 856
@@ -972,4 +973,170 @@ es. `-4644214685`), `0` se il file non esiste; nessun warning per file mancanti 
   (osservato: `[0:0.1:1]` → 11, `[0:1/3:1]` → 4, `[0:0.2:1]` → 6).
 - Il valore `timestamp` di `import`/`surface` (sembra una conversione errata della data del file).
 - I valori numerici di `textmetrics`/`fontmetrics` dipendono dai font inclusi in OpenSCAD.
-- Le uscite `.stl`/`.3mf` (geometria) non sono coperte da questo documento.
+- L'export `.stl`/`.off` è descritto in §16; `.3mf`, `.obj`, `.wrl`, `.svg`, `.dxf` non sono coperti.
+- La regola esatta della griglia su cui vengono arrotondati i risultati 2D (§16.7).
+- Il testo esatto dei messaggi quando il file di output esiste ma non è scrivibile.
+
+---
+
+## 16. Export della geometria (`-o file.stl`, `-o file.off`)
+
+Osservato con `openscad -o out.stl in.scad` (il backend predefinito è Manifold; `--backend=manifold`
+non cambia nulla). Implementato in `scadr` (`crates/scadr`), verificato dal corpus
+`tests/compat/geometry` (vedi il suo README).
+
+### 16.1 Scelta del formato
+
+- Il formato viene dal suffisso del file di output, **senza distinzione tra maiuscole e minuscole**
+  (`CUBE.STL` va bene), oppure da `--export-format <nome>` (o `--export-format=<nome>`), che vince sul
+  suffisso ed è **sensibile alle maiuscole** (`STL` non è valido). `--export-format asciistl -o x.off`
+  scrive un STL ASCII nel file `x.off`.
+- Nomi validi (suffissi e `--export-format`): `stl`, `asciistl`, `binstl`, `off`, `wrl`, `3mf`, `csg`,
+  `dxf`, `svg`, `pdf`, `png`, `echo`, `ast`, `term`, `nef3`, `nefdbg`, `param`, `pov`, `obj`.
+- `stl` in OpenSCAD è **STL ASCII** (l'help dice che il binario diventerà il default in futuro).
+  `scadr` fa lo stesso, per poter sostituire `openscad` negli script esistenti; `asciistl` e
+  `binstl` sono espliciti in entrambi. L'app esporta in binario o ASCII a scelta.
+- `-o -` scrive su stdout (serve `--export-format`, il suffisso vuoto non è valido).
+- Questi controlli avvengono **prima** di leggere e valutare il file (nessun `ECHO`), exit code 1:
+
+| situazione | stderr |
+|---|---|
+| suffisso sconosciuto (`-o a.xyz`) | `Invalid suffix xyz. Either add a valid suffix or specify one using the --export-format option.` |
+| nessun suffisso (`-o a`, `-o -`) | `Invalid suffix . Either add a valid suffix or specify one using the --export-format option.` |
+| `--export-format foo` | `Unknown --export-format option 'foo'.  Use -h to list available options.` (due spazi dopo il punto) |
+| cartella di output inesistente | riga vuota, `'nodir' is not a directory for output file nodir\cube.stl - Skipping`, riga vuota |
+| file di input inesistente | `Can't open input file 'nosuch.scad'!` seguito da una riga vuota |
+
+In `scadr` un formato valido per OpenSCAD ma non ancora supportato (`3mf`, `svg`…) dà
+`ERROR: export format '3mf' is not supported by scadr yet.` ed exit code 1.
+
+### 16.2 Messaggi ed exit code
+
+- `$preview` vale `false` (con `.csg`/`.echo` vale `true`).
+- Ordine su stderr: messaggi della valutazione (`ECHO`, `WARNING`, `ERROR` + `TRACE`), poi i warning
+  del render, poi la riga di esito oppure il riepilogo (§16.3). Esempio di warning del render
+  (`cube(5); square(3);`):
+  ```
+  WARNING: Mixing 2D and 3D objects is not supported in file cli_mixed_2d_3d.scad, line 3
+  WARNING: Ignoring 2D child object for 3D operation in file cli_mixed_2d_3d.scad, line 3
+  ```
+  In `scadr` sono gli elementi di `RenderOutput::warnings`, stampati come `WARNING: <testo>`.
+- Niente da esportare → `Current top level object is empty.`, **nessun file**, exit code **1**. Succede
+  con un file vuoto o solo `echo`, solo oggetti `%`, `cube(0)`/`cube([0, 1, 1])`, una differenza che
+  toglie tutto, un errore di valutazione prima di qualunque oggetto.
+- Risultato 2D esportato in STL/OFF → `Current top level object is not a 3D object.`, nessun file,
+  exit code 1. (Al contrario, un oggetto 3D esportato in `.svg`/`.dxf` dà
+  `Current top level object is not a 2D object.`)
+- Errore di valutazione (`assert`, ricorsione) → si renderizzano gli oggetti top-level completati prima
+  dell'errore, il file viene scritto, exit code **0**.
+- Errore di parsing → come per `.csg`: nessun file, exit code 1.
+- Su successo: riepilogo su stderr, niente su stdout, exit code 0.
+
+### 16.3 Riepilogo dopo il render
+
+OpenSCAD stampa due forme. Quando il risultato è un singolo oggetto che non passa da una booleana tra
+più oggetti (primitiva, trasformazioni, `union()` con un figlio, `render()`, `linear_extrude`,
+`rotate_extrude`, `polyhedron`) è un **PolySet**:
+
+```
+Geometries in cache: 1
+Geometry cache size in bytes: 856
+CGAL Polyhedrons in cache: 0
+CGAL cache size in bytes: 0
+Total rendering time: 0:00:00.002
+Top level object is a 3D object (PolySet):
+   Convex:       yes
+   Facets:         6
+```
+
+`Facets:` conta i poligoni (6 per un cubo); per i PolySet già triangolati (`linear_extrude`,
+`rotate_extrude`, `polyhedron`) la riga è `Triangles:` (`   Triangles:     12`). `Convex:` vale `yes`/`no`.
+Le colonne: `Convex:`/`Facets:`/`Triangles:` più il valore allineato a destra su 17 caratteri.
+
+Con unioni di più oggetti (anche quella implicita del livello superiore), `difference`,
+`intersection`, `hull`, `minkowski` il risultato è un **manifold** (notare i 3 spazi anche prima di
+`Top level`):
+
+```
+Geometries in cache: 2
+Geometry cache size in bytes: 1712
+CGAL Polyhedrons in cache: 1
+CGAL cache size in bytes: 4000
+Total rendering time: 0:00:00.009
+   Top level object is a 3D object (manifold):
+   Status:     NoError
+   Genus:      -1
+   Vertices:       16
+   Facets:         24
+```
+
+`Facets` = triangoli, `Vertices` = vertici del manifold (non saldati: due cubi che si toccano su uno
+spigolo hanno vertici duplicati), `Genus` = `1 − χ/2` con χ = V − E + F, senza tenere conto dei pezzi
+(due cubi separati o un cubo con una cavità → `-1`). Formato: `Status:`/`Genus:` riempiti a 12
+caratteri, `Vertices:`/`Facets:` riempiti a 10 + numero allineato a destra su 8.
+`Total rendering time` è `H:MM:SS.mmm`.
+
+`scadr` stampa un sottoinsieme compatibile: `Total rendering time` e sempre la forma **manifold**
+(Status `NoError`, Genus, Vertices = vertici della mesh, Facets = triangoli), senza le righe della
+cache. Il compat-runner scarta comunque queste righe.
+
+### 16.4 STL ASCII
+
+```
+solid OpenSCAD_Model
+  facet normal 0 0 1
+    outer loop
+      vertex 0 10 10
+      vertex 10 0 10
+      vertex 10 10 10
+    endloop
+  endfacet
+  ...
+endsolid OpenSCAD_Model
+```
+
+- Numeri: le cifre più corte che si rileggono identiche come `double`, in notazione normale se
+  l'esponente decimale è tra −7 e 21 esclusi, altrimenti esponenziale **senza `+`**: `0.000001`,
+  `1e-7`, `-9e-9`, `110000000000000000000`, `1e21`, `1.1e22`, `0.000012345678901234568`,
+  `-0.8137976813493738`. `-0` diventa `0`.
+- Normale = `(b − a) × (c − a)` **diviso** per la sua lunghezza (moltiplicare per il reciproco cambia
+  l'ultima cifra nel 25–50% delle faccette).
+- Su Windows le righe terminano con CRLF; `scadr` scrive LF (per il resto l'output è identico byte per
+  byte a parità di triangoli, verificato su 5636 faccette di `separatore.scad`).
+
+### 16.5 STL binario
+
+Intestazione di 80 byte `OpenSCAD Model\n` seguita da zeri, numero di triangoli `u32`, poi per ogni
+triangolo normale e 3 vertici in `f32` little endian e attributo `0`.
+
+### 16.6 OFF
+
+```
+OFF
+8 6 0
+0 0 0 
+10 0 0 
+...
+4 4 5 7 6
+4 2 3 1 0
+```
+
+- Coordinate con **6 cifre significative** (`0.975452`), seguite da uno spazio finale.
+- Un PolySet mantiene i poligoni (un cubo ha 6 facce `4 …`); un manifold ha triangoli seguiti dal
+  colore della faccia (`3 0 2 6 249 215 44`). I vertici non sono saldati.
+- `scadr` scrive lo stesso schema con coordinate a precisione piena (formato di §16.4), solo triangoli,
+  senza colori. Il lettore (`mesh_io::read_off`) accetta anche i file di OpenSCAD (poligoni triangolati a
+  ventaglio, colori ignorati).
+
+### 16.7 Osservazioni sulla geometria (dal corpus)
+
+- Un `polyhedron` con tutte le facce nel verso sbagliato viene esportato così com'è (volume negativo,
+  `prim_polyhedron_reversed`).
+- I risultati 2D vengono arrotondati su una griglia binaria fine: in `twod_square_circle` il vertice
+  teorico `6.299038105676658` diventa `6.299038104712963` (multiplo esatto di 2^-30) e il volume
+  `37.499999989984985` invece di `37.5`.
+- `minkowski()` con un operando non convesso e un secondo operando arrotondato **non è
+  deterministico** in OpenSCAD: a ogni esecuzione cambiano triangolazione e vertici collineari (stesso
+  volume a 1e-16). Con un cubo come secondo operando il risultato è stabile.
+- Due cubi che si toccano su uno spigolo restano due gusci con vertici duplicati (`bool_touching_edge`);
+  due cubi con una faccia in comune vengono fusi (`bool_coplanar_union`, 20 triangoli).

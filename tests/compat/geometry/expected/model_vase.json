@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "exit_code": 0,
+  "top_level": null,
+  "log": "ECHO: [[0, 0], [10, 0], [12.1213, 5], [13, 10], [12.1213, 15], [10, 20], [7.87868, 25], [7, 30], [7.87868, 35], [10, 40], [0, 40]]\n",
+  "geometry": {
+    "triangles": 960,
+    "vertices": 386,
+    "volume": 13039.336063069475,
+    "area": 3265.0650242929664,
+    "bbox_min": [-13, -13, 0],
+    "bbox_max": [13, 13, 40],
+    "manifold": true,
+    "open_edges": 0,
+    "nonmanifold_edges": 0,
+    "degenerate_triangles": 192,
+    "components": 1,
+    "euler": 2,
+    "genus": 0,
+    "vertex_hash": "fnv1a64:2e7bb1c5b19906c3",
+    "triangle_hash": "fnv1a64:e94c478dbd6240c3"
+  }
+}

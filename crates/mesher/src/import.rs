@@ -12,7 +12,7 @@ use crate::polyset::PolySet;
 /// call; returns the path and its OpenSCAD-style display form.
 fn resolve(ev: &Evaluator, source: Option<SourceRef>, file: &str) -> (PathBuf, String) {
     let dir = source
-        .and_then(|s| ev.options().files.get(s.file as usize))
+        .and_then(|s| ev.files().get(s.file as usize))
         .and_then(|p| p.parent())
         .map(Path::to_path_buf);
     let path = Path::new(file);
@@ -51,15 +51,16 @@ pub fn import(ev: &mut Evaluator, node: &Node) -> Geom {
                     })
                 })
                 .map_err(|e| e.to_string()),
-            "off" => mesh_io::read_off_file(path)
+            "off" => std::fs::read(path)
+                .map_err(|e| e.to_string())
+                .and_then(|bytes| mesh_io::read_off_polygons(&bytes).map_err(|e| e.to_string()))
                 .map(|off| {
-                    let n = off.vertices.len();
+                    let n = off.vertices.len() as u32;
                     // OFF faces are counter-clockwise seen from outside.
                     let faces = off
                         .faces
                         .into_iter()
                         .filter(|f| f.len() >= 3 && f.iter().all(|&i| i < n))
-                        .map(|f| f.into_iter().map(|i| i as u32).collect())
                         .collect();
                     Some(PolySet {
                         vertices: off.vertices,

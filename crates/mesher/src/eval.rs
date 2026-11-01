@@ -66,6 +66,7 @@ impl Geom {
 
 pub struct Evaluator<'a> {
     options: &'a RenderOptions,
+    files: &'a [std::path::PathBuf],
     pub diagnostics: Vec<Diagnostic>,
     pub sources: Vec<SourceRef>,
     source_index: HashMap<SourceRef, u32>,
@@ -84,9 +85,10 @@ pub struct Evaluator<'a> {
 type Result<T> = std::result::Result<T, RenderError>;
 
 impl<'a> Evaluator<'a> {
-    pub fn new(options: &'a RenderOptions) -> Self {
+    pub fn new(options: &'a RenderOptions, files: &'a [std::path::PathBuf]) -> Self {
         Self {
             options,
+            files,
             diagnostics: Vec::new(),
             sources: Vec::new(),
             source_index: HashMap::new(),
@@ -108,8 +110,9 @@ impl<'a> Evaluator<'a> {
         Ok(g?.transform(&world))
     }
 
-    pub fn options(&self) -> &RenderOptions {
-        self.options
+    /// Source file paths indexed by `SourceRef::file`.
+    pub fn files(&self) -> &[std::path::PathBuf] {
+        self.files
     }
 
     pub fn warn(&mut self, text: impl Into<String>, source: Option<SourceRef>) {

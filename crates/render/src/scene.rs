@@ -47,6 +47,50 @@ impl Default for SceneStyle {
 const FEATURE_EDGE_ANGLE_DEG: f64 = 25.0;
 const EDGE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.55];
 
+/// What a mesh represents, which decides how it is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerKind {
+    /// The model: opaque, with outlined edges.
+    Model,
+    /// `#` subtrees: translucent red, like OpenSCAD's preview.
+    Highlight,
+    /// `%` subtrees: translucent grey, not part of the result.
+    Background,
+}
+
+impl LayerKind {
+    /// sRGB color and opacity of transparent layers.
+    fn translucent_color(self) -> Option<([f32; 3], f32)> {
+        match self {
+            Self::Model => None,
+            // OpenSCAD's highlight color, RGB (255, 81, 81).
+            Self::Highlight => Some(([1.0, 81.0 / 255.0, 81.0 / 255.0], 0.5)),
+            Self::Background => Some(([0.71, 0.71, 0.71], 0.3)),
+        }
+    }
+}
+
+/// A mesh to show, with its role.
+pub struct LayerMesh<'a> {
+    pub kind: LayerKind,
+    pub mesh: &'a Mesh,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct LayerUniforms {
+    front: [f32; 4],
+    back: [f32; 4],
+}
+
+struct Layer {
+    kind: LayerKind,
+    triangles: VertexBuffer,
+    edges: Option<VertexBuffer>,
+    uniform_buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Uniforms {
@@ -94,12 +138,13 @@ struct Targets {
 pub struct Scene {
     background_pipeline: wgpu::RenderPipeline,
     mesh_pipeline: wgpu::RenderPipeline,
+    translucent_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    mesh: Option<VertexBuffer>,
-    edges: Option<VertexBuffer>,
+    layer_bind_group_layout: wgpu::BindGroupLayout,
+    layers: Vec<Layer>,
     grid: Option<VertexBuffer>,
     axes: Option<VertexBuffer>,
     bounds: Option<(Vec3, Vec3)>,
@@ -124,9 +169,28 @@ impl Scene {
                 count: None,
             }],
         });
+        let layer_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("layer uniforms"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("scene"),
             bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let mesh_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("scene mesh"),
+            bind_group_layouts: &[Some(&bind_group_layout), Some(&layer_bind_group_layout)],
             immediate_size: 0,
         });
 
@@ -146,6 +210,7 @@ impl Scene {
         });
 
         let pipeline = |label: &str,
+                        layout: &wgpu::PipelineLayout,
                         vs: &str,
                         fs: &str,
                         buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
@@ -155,7 +220,7 @@ impl Scene {
                         blend: Option<wgpu::BlendState>| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
-                layout: Some(&layout),
+                layout: Some(layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some(vs),
@@ -196,6 +261,7 @@ impl Scene {
 
         let background_pipeline = pipeline(
             "background",
+            &layout,
             "vs_background",
             "fs_background",
             &[],
@@ -204,19 +270,34 @@ impl Scene {
             wgpu::CompareFunction::Always,
             None,
         );
+        let mesh_buffers = [Some(wgpu::VertexBufferLayout {
+            array_stride: size_of::<MeshVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+        })];
         let mesh_pipeline = pipeline(
             "mesh",
+            &mesh_layout,
             "vs_mesh",
             "fs_mesh",
-            &[Some(wgpu::VertexBufferLayout {
-                array_stride: size_of::<MeshVertex>() as u64,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
-            })],
+            &mesh_buffers,
             wgpu::PrimitiveTopology::TriangleList,
             true,
             wgpu::CompareFunction::Less,
             None,
+        );
+        // Translucent layers test against the model but do not hide each
+        // other; LessEqual lets them show on faces they share with it.
+        let translucent_pipeline = pipeline(
+            "translucent mesh",
+            &mesh_layout,
+            "vs_mesh",
+            "fs_mesh",
+            &mesh_buffers,
+            wgpu::PrimitiveTopology::TriangleList,
+            false,
+            wgpu::CompareFunction::LessEqual,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
         );
         let line_layout = [Some(wgpu::VertexBufferLayout {
             array_stride: size_of::<LineVertex>() as u64,
@@ -225,6 +306,7 @@ impl Scene {
         })];
         let line_pipeline = pipeline(
             "lines",
+            &layout,
             "vs_line",
             "fs_line",
             &line_layout,
@@ -235,6 +317,7 @@ impl Scene {
         );
         let edge_pipeline = pipeline(
             "edges",
+            &layout,
             "vs_edge",
             "fs_line",
             &line_layout,
@@ -247,12 +330,13 @@ impl Scene {
         let mut scene = Self {
             background_pipeline,
             mesh_pipeline,
+            translucent_pipeline,
             line_pipeline,
             edge_pipeline,
             uniform_buffer,
             bind_group,
-            mesh: None,
-            edges: None,
+            layer_bind_group_layout,
+            layers: Vec::new(),
             grid: None,
             axes: None,
             bounds: None,
@@ -276,13 +360,40 @@ impl Scene {
         self.bounds
     }
 
+    /// Shows a single opaque model.
     pub fn set_mesh(&mut self, device: &wgpu::Device, mesh: &Mesh) {
-        let bounds = mesh.bounds();
-        if bounds.is_empty() {
-            self.clear_mesh(device);
-            return;
-        }
+        self.set_layers(
+            device,
+            &[LayerMesh {
+                kind: LayerKind::Model,
+                mesh,
+            }],
+        );
+    }
 
+    /// Replaces everything shown. Empty meshes are skipped.
+    pub fn set_layers(&mut self, device: &wgpu::Device, layers: &[LayerMesh<'_>]) {
+        self.layers.clear();
+        let mut bounds = geometry::Aabb::EMPTY;
+        for layer in layers {
+            let mesh_bounds = layer.mesh.bounds();
+            if mesh_bounds.is_empty() {
+                continue;
+            }
+            bounds.include(mesh_bounds.min);
+            bounds.include(mesh_bounds.max);
+            self.layers.push(self.upload_layer(device, layer));
+        }
+        self.bounds = (!bounds.is_empty()).then(|| (bounds.min.as_vec3(), bounds.max.as_vec3()));
+        self.rebuild_overlays(device);
+    }
+
+    pub fn clear_mesh(&mut self, device: &wgpu::Device) {
+        self.set_layers(device, &[]);
+    }
+
+    fn upload_layer(&self, device: &wgpu::Device, layer: &LayerMesh<'_>) -> Layer {
+        let mesh = layer.mesh;
         // Flat shading: every triangle gets its own vertices and face normal.
         let mut vertices = Vec::with_capacity(mesh.triangle_count() * 3);
         for (i, tri) in mesh.triangles().enumerate() {
@@ -294,28 +405,60 @@ impl Scene {
                 });
             }
         }
-        self.mesh = Some(create_vertex_buffer(device, "mesh", &vertices));
 
-        let edges: Vec<LineVertex> = mesh
-            .feature_edges(FEATURE_EDGE_ANGLE_DEG)
-            .iter()
-            .flatten()
-            .map(|&v| LineVertex {
-                position: mesh.vertices[v as usize].as_vec3().to_array(),
-                color: EDGE_COLOR,
+        // Only the model gets outlines; translucent layers stay light.
+        let edges = (layer.kind == LayerKind::Model)
+            .then(|| {
+                let lines: Vec<LineVertex> = mesh
+                    .feature_edges(FEATURE_EDGE_ANGLE_DEG)
+                    .iter()
+                    .flatten()
+                    .map(|&v| LineVertex {
+                        position: mesh.vertices[v as usize].as_vec3().to_array(),
+                        color: EDGE_COLOR,
+                    })
+                    .collect();
+                (!lines.is_empty()).then(|| create_vertex_buffer(device, "edges", &lines))
             })
-            .collect();
-        self.edges = (!edges.is_empty()).then(|| create_vertex_buffer(device, "edges", &edges));
+            .flatten();
 
-        self.bounds = Some((bounds.min.as_vec3(), bounds.max.as_vec3()));
-        self.rebuild_overlays(device);
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("layer uniforms"),
+            size: size_of::<LayerUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("layer uniforms"),
+            layout: &self.layer_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+        Layer {
+            kind: layer.kind,
+            triangles: create_vertex_buffer(device, "mesh", &vertices),
+            edges,
+            uniform_buffer,
+            bind_group,
+        }
     }
 
-    pub fn clear_mesh(&mut self, device: &wgpu::Device) {
-        self.mesh = None;
-        self.edges = None;
-        self.bounds = None;
-        self.rebuild_overlays(device);
+    fn layer_uniforms(&self, kind: LayerKind) -> LayerUniforms {
+        match kind.translucent_color() {
+            None => LayerUniforms {
+                front: linear(self.style.model_color),
+                back: linear(self.style.back_face_color),
+            },
+            Some((rgb, alpha)) => {
+                let mut front = linear(rgb);
+                front[3] = alpha;
+                // Inner faces of translucent shapes are slightly darker.
+                let back = [front[0] * 0.7, front[1] * 0.7, front[2] * 0.7, alpha];
+                LayerUniforms { front, back }
+            }
+        }
     }
 
     fn rebuild_overlays(&mut self, device: &wgpu::Device) {
@@ -350,6 +493,13 @@ impl Scene {
             0,
             bytemuck::bytes_of(&self.uniforms(camera, view_proj)),
         );
+        for layer in &self.layers {
+            queue.write_buffer(
+                &layer.uniform_buffer,
+                0,
+                bytemuck::bytes_of(&self.layer_uniforms(layer.kind)),
+            );
+        }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("scene"),
@@ -383,15 +533,21 @@ impl Scene {
             pass.set_pipeline(&self.background_pipeline);
             pass.draw(0..3, 0..1);
 
-            if let Some(mesh) = &self.mesh {
-                pass.set_pipeline(&self.mesh_pipeline);
-                pass.set_vertex_buffer(0, mesh.buffer.slice(..));
-                pass.draw(0..mesh.count, 0..1);
+            let (opaque, translucent): (Vec<&Layer>, Vec<&Layer>) =
+                self.layers.iter().partition(|l| l.kind == LayerKind::Model);
+
+            pass.set_pipeline(&self.mesh_pipeline);
+            for layer in &opaque {
+                pass.set_bind_group(1, &layer.bind_group, &[]);
+                pass.set_vertex_buffer(0, layer.triangles.buffer.slice(..));
+                pass.draw(0..layer.triangles.count, 0..1);
             }
-            if let (true, Some(edges)) = (self.style.show_edges, &self.edges) {
+            if self.style.show_edges {
                 pass.set_pipeline(&self.edge_pipeline);
-                pass.set_vertex_buffer(0, edges.buffer.slice(..));
-                pass.draw(0..edges.count, 0..1);
+                for edges in opaque.iter().filter_map(|l| l.edges.as_ref()) {
+                    pass.set_vertex_buffer(0, edges.buffer.slice(..));
+                    pass.draw(0..edges.count, 0..1);
+                }
             }
 
             pass.set_pipeline(&self.line_pipeline);
@@ -404,6 +560,14 @@ impl Scene {
                     pass.set_vertex_buffer(0, lines.buffer.slice(..));
                     pass.draw(0..lines.count, 0..1);
                 }
+            }
+
+            // Last, so the grid and the model show through them.
+            pass.set_pipeline(&self.translucent_pipeline);
+            for layer in &translucent {
+                pass.set_bind_group(1, &layer.bind_group, &[]);
+                pass.set_vertex_buffer(0, layer.triangles.buffer.slice(..));
+                pass.draw(0..layer.triangles.count, 0..1);
             }
         }
         queue.submit([encoder.finish()]);

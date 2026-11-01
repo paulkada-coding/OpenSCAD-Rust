@@ -7,6 +7,8 @@ rust-version.workspace = true
 
 [dependencies]
 geometry = { version = "0.1.0", path = "../geometry" }
+mesh-io = { version = "0.1.0", path = "../mesh-io" }
+mesher = { version = "0.1.0", path = "../mesher" }
 scad-eval = { version = "0.1.0", path = "../scad-eval" }
 
 [lints]

@@ -1,31 +1,93 @@
-//! Main window: menus, model info panel, status bar and the 3D viewport.
+//! Main window: menus, model info panel, console, status bar and the 3D
+//! viewport. `.scad` files are evaluated in the background and reloaded
+//! automatically when they (or their includes) change on disk.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Context as _;
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
 use eframe::egui_wgpu;
 use geometry::{Aabb, Mesh};
 use mesh_io::StlFormat;
-use render::{Projection, ViewPreset};
+use mesher::{RenderOutput, Shape};
+use render::{LayerKind, LayerMesh, Projection, ViewPreset};
 
 use crate::settings::{self, FrameRate, Settings};
 use crate::viewport::Viewport;
+use crate::worker::{ConsoleLine, JobResult, LineKind, Worker, modified_time};
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 const EXPORT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::E);
+const RELOAD: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F5);
 const FIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F);
 
-struct LoadedModel {
-    path: PathBuf,
-    mesh: Mesh,
+/// How often open files are checked for changes on disk.
+const WATCH_INTERVAL: Duration = Duration::from_millis(500);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentKind {
+    Scad,
+    Stl,
+}
+
+/// Measurements of the displayed geometry.
+struct Stats {
     bounds: Aabb,
-    volume: f64,
+    triangles: usize,
+    vertices: usize,
+    /// Volume and area are meaningful for solids only.
+    volume: Option<f64>,
     area: f64,
 }
 
-struct PendingLoad {
+impl Stats {
+    fn of(mesh: &Mesh, solid: bool) -> Self {
+        Self {
+            bounds: mesh.bounds(),
+            triangles: mesh.triangle_count(),
+            vertices: mesh.vertices.len(),
+            volume: solid.then(|| mesh.volume()),
+            area: mesh.surface_area(),
+        }
+    }
+}
+
+struct Document {
+    path: PathBuf,
+    kind: DocumentKind,
+    /// The exportable solid, when the result is 3D.
+    solid: Option<Mesh>,
+    is_planar: bool,
+    stats: Option<Stats>,
+    /// Files to watch, with the modification time last seen.
+    dependencies: Vec<(PathBuf, Option<SystemTime>)>,
+    /// Generation of the evaluation in progress, if any.
+    pending: Option<u64>,
+    /// The camera is framed once, on the first result, and then left alone
+    /// so reloads while editing do not move the view.
+    framed: bool,
+    timings: Option<(Duration, Duration)>,
+}
+
+impl Document {
+    fn new(path: PathBuf, kind: DocumentKind) -> Self {
+        Self {
+            dependencies: vec![(path.clone(), modified_time(&path))],
+            path,
+            kind,
+            solid: None,
+            is_planar: false,
+            stats: None,
+            pending: None,
+            framed: false,
+            timings: None,
+        }
+    }
+}
+
+struct PendingStl {
     path: PathBuf,
     result: Receiver<Result<Mesh, mesh_io::StlError>>,
 }
@@ -38,8 +100,12 @@ enum Status {
 pub struct ViewerApp {
     render_state: egui_wgpu::RenderState,
     viewport: Viewport,
-    model: Option<LoadedModel>,
-    loading: Option<PendingLoad>,
+    worker: Worker,
+    document: Option<Document>,
+    loading_stl: Option<PendingStl>,
+    console: Vec<ConsoleLine>,
+    show_console: bool,
+    last_watch: Instant,
     status: Status,
     gpu_name: String,
     settings: Settings,
@@ -59,20 +125,56 @@ impl ViewerApp {
         let mut app = Self {
             viewport: Viewport::new(&render_state.device),
             render_state,
-            model: None,
-            loading: None,
+            worker: Worker::spawn(cc.egui_ctx.clone()),
+            document: None,
+            loading_stl: None,
+            console: Vec::new(),
+            show_console: true,
+            last_watch: Instant::now(),
             status: Status::Info("Pronto".into()),
             gpu_name,
             settings: Settings::load(cc.storage),
             settings_open: false,
         };
         if let Some(path) = initial {
-            app.start_loading(path, &cc.egui_ctx);
+            app.open(path, &cc.egui_ctx);
         }
         Ok(app)
     }
 
-    fn start_loading(&mut self, path: PathBuf, ctx: &egui::Context) {
+    // ------------------------------------------------------------ opening
+
+    fn open(&mut self, path: PathBuf, ctx: &egui::Context) {
+        if has_extension(&path, "scad") {
+            self.console.clear();
+            self.document = Some(Document::new(path.clone(), DocumentKind::Scad));
+            self.viewport.clear(&self.render_state.device);
+            self.evaluate(&path);
+        } else {
+            self.start_stl_loading(path, ctx);
+        }
+    }
+
+    fn evaluate(&mut self, path: &Path) {
+        let generation = self.worker.submit(path.to_path_buf());
+        if let Some(doc) = &mut self.document {
+            doc.pending = Some(generation);
+        }
+        self.status = Status::Info(format!("Calcolo di {}…", file_name(path)));
+    }
+
+    fn reload(&mut self, ctx: &egui::Context) {
+        let Some(doc) = &self.document else {
+            return;
+        };
+        let path = doc.path.clone();
+        match doc.kind {
+            DocumentKind::Scad => self.evaluate(&path),
+            DocumentKind::Stl => self.start_stl_loading(path, ctx),
+        }
+    }
+
+    fn start_stl_loading(&mut self, path: PathBuf, ctx: &egui::Context) {
         let (sender, receiver) = std::sync::mpsc::channel();
         let ctx = ctx.clone();
         let source = path.clone();
@@ -81,14 +183,14 @@ impl ViewerApp {
             ctx.request_repaint();
         });
         self.status = Status::Info(format!("Caricamento di {}…", file_name(&path)));
-        self.loading = Some(PendingLoad {
+        self.loading_stl = Some(PendingStl {
             path,
             result: receiver,
         });
     }
 
-    fn poll_loading(&mut self) {
-        let Some(pending) = &self.loading else {
+    fn poll_stl_loading(&mut self) {
+        let Some(pending) = &self.loading_stl else {
             return;
         };
         let outcome = match pending.result.try_recv() {
@@ -96,28 +198,38 @@ impl ViewerApp {
             Err(TryRecvError::Empty) => return,
             Err(TryRecvError::Disconnected) => {
                 self.status = Status::Error("caricamento interrotto".into());
-                self.loading = None;
+                self.loading_stl = None;
                 return;
             }
         };
         let path = pending.path.clone();
-        self.loading = None;
+        self.loading_stl = None;
 
         match outcome {
             Ok(mesh) => {
-                self.viewport.set_mesh(&self.render_state.device, &mesh);
+                let reloading = self
+                    .document
+                    .as_ref()
+                    .is_some_and(|d| d.path == path && d.kind == DocumentKind::Stl);
+                if !reloading {
+                    self.console.clear();
+                    self.document = Some(Document::new(path.clone(), DocumentKind::Stl));
+                }
                 self.status = Status::Info(format!(
                     "Aperto {} ({} triangoli)",
                     file_name(&path),
                     mesh.triangle_count()
                 ));
-                self.model = Some(LoadedModel {
-                    bounds: mesh.bounds(),
-                    volume: mesh.volume(),
-                    area: mesh.surface_area(),
-                    path,
-                    mesh,
-                });
+                self.show_geometry(&[LayerMesh {
+                    kind: LayerKind::Model,
+                    mesh: &mesh,
+                }]);
+                if let Some(doc) = &mut self.document {
+                    doc.dependencies = vec![(path.clone(), modified_time(&path))];
+                    doc.stats = Some(Stats::of(&mesh, true));
+                    doc.is_planar = false;
+                    doc.solid = Some(mesh);
+                }
             }
             Err(err) => {
                 self.status = Status::Error(format!("{}: {err}", file_name(&path)));
@@ -125,21 +237,126 @@ impl ViewerApp {
         }
     }
 
+    // ------------------------------------------------------ evaluation
+
+    fn poll_worker(&mut self) {
+        while let Ok(result) = self.worker.results.try_recv() {
+            let current = self
+                .document
+                .as_ref()
+                .is_some_and(|d| d.pending == Some(result.generation) && d.path == result.path);
+            if current {
+                self.apply_result(result);
+            }
+        }
+    }
+
+    fn apply_result(&mut self, result: JobResult) {
+        self.console = result.console;
+        let name = file_name(&result.path);
+        let Some(doc) = &mut self.document else {
+            return;
+        };
+        doc.pending = None;
+        doc.dependencies = result.dependencies;
+
+        let Some(output) = result.output else {
+            // Keep showing the last good geometry while the file is fixed.
+            self.status = Status::Error(format!("{name}: errore, vedi la console"));
+            self.show_console = true;
+            return;
+        };
+        doc.timings = Some((result.eval_time, result.mesh_time));
+        let has_errors = self.console.iter().any(|l| l.kind == LineKind::Error);
+        let timing = format!(
+            "valutazione {} ms · geometria {} ms",
+            result.eval_time.as_millis(),
+            result.mesh_time.as_millis()
+        );
+        self.status = if has_errors {
+            Status::Error(format!("{name}: errore, vedi la console ({timing})"))
+        } else {
+            Status::Info(format!("{name} · {timing}"))
+        };
+
+        let (model, solid) = match &output.shape {
+            Shape::Solid(mesh) => (Some(mesh), true),
+            Shape::Planar { fill, .. } => (Some(fill), false),
+            Shape::Empty => (None, false),
+        };
+        doc.stats = model.filter(|m| !m.is_empty()).map(|m| Stats::of(m, solid));
+        doc.is_planar = matches!(output.shape, Shape::Planar { .. });
+        doc.solid = match &output.shape {
+            Shape::Solid(mesh) if !mesh.is_empty() => Some(mesh.clone()),
+            _ => None,
+        };
+        let frame = !doc.framed;
+        doc.framed = true;
+
+        let layers = layers_of(&output);
+        self.show_geometry(&layers);
+        if frame {
+            self.viewport.fit();
+        }
+    }
+
+    fn show_geometry(&mut self, layers: &[LayerMesh<'_>]) {
+        let fit = self
+            .document
+            .as_ref()
+            .is_some_and(|d| d.kind == DocumentKind::Stl);
+        self.viewport
+            .set_layers(&self.render_state.device, layers, fit);
+    }
+
+    /// Re-evaluates when a watched file changed on disk.
+    fn watch_files(&mut self, ctx: &egui::Context) {
+        if self.last_watch.elapsed() < WATCH_INTERVAL {
+            return;
+        }
+        self.last_watch = Instant::now();
+        let Some(doc) = &self.document else {
+            return;
+        };
+        if doc.pending.is_some() || self.loading_stl.is_some() {
+            return;
+        }
+        let changed = doc
+            .dependencies
+            .iter()
+            .any(|(path, seen)| modified_time(path) != *seen);
+        if changed {
+            self.reload(ctx);
+        }
+    }
+
+    // ------------------------------------------------------------- export
+
     fn open_dialog(&mut self, ctx: &egui::Context) {
         let picked = rfd::FileDialog::new()
             .set_title("Apri modello")
+            .add_filter("Modelli (OpenSCAD, STL)", &["scad", "stl"])
+            .add_filter("OpenSCAD", &["scad"])
             .add_filter("STL", &["stl"])
             .pick_file();
         if let Some(path) = picked {
-            self.start_loading(path, ctx);
+            self.open(path, ctx);
         }
     }
 
     fn export_dialog(&mut self, format: StlFormat) {
-        let Some(model) = &self.model else {
+        let Some(doc) = &self.document else {
             return;
         };
-        let default_name = model
+        let Some(solid) = &doc.solid else {
+            self.status = Status::Error(if doc.is_planar {
+                "Il risultato è 2D: l'STL richiede un oggetto 3D".into()
+            } else {
+                "Niente da esportare".into()
+            });
+            return;
+        };
+        let default_name = doc
             .path
             .file_stem()
             .map(|s| format!("{}.stl", s.to_string_lossy()))
@@ -152,11 +369,13 @@ impl ViewerApp {
         let Some(path) = picked else {
             return;
         };
-        self.status = match mesh_io::write_stl_file(&model.mesh, &path, format) {
+        self.status = match mesh_io::write_stl_file(solid, &path, format) {
             Ok(()) => Status::Info(format!("Esportato {}", path.display())),
             Err(err) => Status::Error(format!("Esportazione fallita: {err}")),
         };
     }
+
+    // ----------------------------------------------------------------- input
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped = ctx.input(|i| {
@@ -164,10 +383,10 @@ impl ViewerApp {
                 .dropped_files
                 .iter()
                 .map(|f| f.path().to_path_buf())
-                .find(|p| has_extension(p, "stl"))
+                .find(|p| has_extension(p, "stl") || has_extension(p, "scad"))
         });
         if let Some(path) = dropped {
-            self.start_loading(path, ctx);
+            self.open(path, ctx);
         }
     }
 
@@ -178,28 +397,43 @@ impl ViewerApp {
         if ctx.input_mut(|i| i.consume_shortcut(&EXPORT)) {
             self.export_dialog(StlFormat::Binary);
         }
+        if ctx.input_mut(|i| i.consume_shortcut(&RELOAD)) {
+            self.reload(ctx);
+        }
         let typing = ctx.egui_wants_keyboard_input();
         if !typing && ctx.input_mut(|i| i.consume_shortcut(&FIT)) {
             self.viewport.fit();
         }
     }
 
+    // -------------------------------------------------------------------- UI
+
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 let shortcut = ui.ctx().format_shortcut(&OPEN);
                 if ui
-                    .add(egui::Button::new("Apri STL…").shortcut_text(shortcut))
+                    .add(egui::Button::new("Apri…").shortcut_text(shortcut))
                     .clicked()
                 {
                     self.open_dialog(ui.ctx());
                 }
+                let shortcut = ui.ctx().format_shortcut(&RELOAD);
+                if ui
+                    .add_enabled(
+                        self.document.is_some(),
+                        egui::Button::new("Ricarica").shortcut_text(shortcut),
+                    )
+                    .clicked()
+                {
+                    self.reload(ui.ctx());
+                }
                 ui.separator();
-                let has_model = self.model.is_some();
+                let has_solid = self.document.as_ref().is_some_and(|d| d.solid.is_some());
                 let shortcut = ui.ctx().format_shortcut(&EXPORT);
                 if ui
                     .add_enabled(
-                        has_model,
+                        has_solid,
                         egui::Button::new("Esporta STL (binario)…").shortcut_text(shortcut),
                     )
                     .clicked()
@@ -207,7 +441,7 @@ impl ViewerApp {
                     self.export_dialog(StlFormat::Binary);
                 }
                 if ui
-                    .add_enabled(has_model, egui::Button::new("Esporta STL (ASCII)…"))
+                    .add_enabled(has_solid, egui::Button::new("Esporta STL (ASCII)…"))
                     .clicked()
                 {
                     self.export_dialog(StlFormat::Ascii);
@@ -251,6 +485,8 @@ impl ViewerApp {
                 if style != self.viewport.style() {
                     self.viewport.set_style(style);
                 }
+                ui.separator();
+                ui.checkbox(&mut self.show_console, "Console");
             });
         });
     }
@@ -258,53 +494,109 @@ impl ViewerApp {
     fn model_panel(&self, ui: &mut egui::Ui) {
         ui.heading("Modello");
         ui.add_space(4.0);
-        let Some(model) = &self.model else {
+        let Some(doc) = &self.document else {
             ui.label("Nessun modello caricato.");
             ui.add_space(8.0);
-            ui.weak("Trascina un file STL nella finestra oppure usa File → Apri.");
+            ui.weak("Trascina un file .scad o .stl nella finestra oppure usa File → Apri.");
             return;
         };
 
-        let size = model.bounds.size();
         egui::Grid::new("model_info")
             .num_columns(2)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
                 ui.label("File");
-                ui.label(file_name(&model.path))
-                    .on_hover_text(model.path.display().to_string());
+                ui.label(file_name(&doc.path))
+                    .on_hover_text(doc.path.display().to_string());
                 ui.end_row();
-                ui.label("Triangoli");
-                ui.label(model.mesh.triangle_count().to_string());
-                ui.end_row();
-                ui.label("Vertici");
-                ui.label(model.mesh.vertices.len().to_string());
-                ui.end_row();
-                ui.label("Dimensioni");
-                ui.label(format!("{:.2} × {:.2} × {:.2} mm", size.x, size.y, size.z));
-                ui.end_row();
-                ui.label("Min");
-                ui.label(format_point(model.bounds.min));
-                ui.end_row();
-                ui.label("Max");
-                ui.label(format_point(model.bounds.max));
-                ui.end_row();
-                ui.label("Volume");
-                ui.label(format!("{:.2} mm³", model.volume));
-                ui.end_row();
-                ui.label("Superficie");
-                ui.label(format!("{:.2} mm²", model.area));
-                ui.end_row();
+                if let Some(stats) = &doc.stats {
+                    let size = stats.bounds.size();
+                    ui.label("Tipo");
+                    ui.label(if doc.is_planar { "2D" } else { "3D" });
+                    ui.end_row();
+                    ui.label("Triangoli");
+                    ui.label(stats.triangles.to_string());
+                    ui.end_row();
+                    ui.label("Vertici");
+                    ui.label(stats.vertices.to_string());
+                    ui.end_row();
+                    ui.label("Dimensioni");
+                    ui.label(format!("{:.2} × {:.2} × {:.2} mm", size.x, size.y, size.z));
+                    ui.end_row();
+                    ui.label("Min");
+                    ui.label(format_point(stats.bounds.min));
+                    ui.end_row();
+                    ui.label("Max");
+                    ui.label(format_point(stats.bounds.max));
+                    ui.end_row();
+                    if let Some(volume) = stats.volume {
+                        ui.label("Volume");
+                        ui.label(format!("{volume:.2} mm³"));
+                        ui.end_row();
+                    }
+                    ui.label("Superficie");
+                    ui.label(format!("{:.2} mm²", stats.area));
+                    ui.end_row();
+                }
+                if let Some((eval, mesh)) = doc.timings {
+                    ui.label("Valutazione");
+                    ui.label(format!("{} ms", eval.as_millis()));
+                    ui.end_row();
+                    ui.label("Geometria");
+                    ui.label(format!("{} ms", mesh.as_millis()));
+                    ui.end_row();
+                }
             });
 
         ui.add_space(12.0);
         ui.separator();
+        if doc.kind == DocumentKind::Scad {
+            ui.weak(
+                "Il modello si aggiorna da solo quando salvi il file (anche da un altro editor).",
+            );
+            ui.add_space(4.0);
+        }
         ui.weak("Sinistro: ruota · Destro/centrale o Maiusc: sposta · Rotella: zoom · Doppio clic o F: adatta");
+    }
+
+    fn console_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.strong("Console");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("Pulisci").clicked() {
+                    self.console.clear();
+                }
+            });
+        });
+        ui.separator();
+        let visuals = ui.visuals().clone();
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                if self.console.is_empty() {
+                    ui.weak("Nessun messaggio.");
+                }
+                for line in &self.console {
+                    let color = match line.kind {
+                        LineKind::Echo => visuals.text_color(),
+                        LineKind::Warning => visuals.warn_fg_color,
+                        LineKind::Error => visuals.error_fg_color,
+                        LineKind::Trace => visuals.weak_text_color(),
+                    };
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(&line.text).monospace().color(color))
+                            .wrap(),
+                    );
+                }
+            });
     }
 
     fn status_bar(&self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if self.loading.is_some() {
+            let busy = self.loading_stl.is_some()
+                || self.document.as_ref().is_some_and(|d| d.pending.is_some());
+            if busy {
                 ui.spinner();
             }
             match &self.status {
@@ -322,16 +614,51 @@ impl ViewerApp {
     }
 }
 
+/// Meshes to display for a render: the model, then `#` and `%` subtrees.
+fn layers_of(output: &RenderOutput) -> Vec<LayerMesh<'_>> {
+    fn mesh_of(shape: &Shape) -> Option<&Mesh> {
+        match shape {
+            Shape::Solid(mesh) => Some(mesh),
+            Shape::Planar { fill, .. } => Some(fill),
+            Shape::Empty => None,
+        }
+    }
+    let mut layers = Vec::new();
+    if let Some(mesh) = mesh_of(&output.shape) {
+        layers.push(LayerMesh {
+            kind: LayerKind::Model,
+            mesh,
+        });
+    }
+    for (shapes, kind) in [
+        (&output.highlighted, LayerKind::Highlight),
+        (&output.background, LayerKind::Background),
+    ] {
+        layers.extend(
+            shapes
+                .iter()
+                .filter_map(mesh_of)
+                .map(|mesh| LayerMesh { kind, mesh }),
+        );
+    }
+    layers
+}
+
 impl eframe::App for ViewerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        self.poll_loading();
+        self.poll_stl_loading();
+        self.poll_worker();
+        self.watch_files(&ctx);
         self.handle_dropped_files(&ctx);
         self.handle_shortcuts(&ctx);
 
         // With vsync on, this presents exactly once per monitor refresh.
         if self.settings.frame_rate == FrameRate::Constant {
             ctx.request_repaint();
+        } else if self.document.is_some() {
+            // Keep watching files even when nothing else happens.
+            ctx.request_repaint_after(WATCH_INTERVAL);
         }
 
         let mut open = self.settings_open;
@@ -347,6 +674,13 @@ impl eframe::App for ViewerApp {
 
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        if self.show_console {
+            egui::Panel::bottom("console")
+                .resizable(true)
+                .default_size(170.0)
+                .min_size(60.0)
+                .show(ui, |ui| self.console_panel(ui));
+        }
         egui::Panel::left("model")
             .default_size(260.0)
             .show(ui, |ui| self.model_panel(ui));
