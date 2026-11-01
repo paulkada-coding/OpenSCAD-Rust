@@ -23,7 +23,7 @@ pub fn text(ev: &mut Evaluator, node: &Node) -> Geom {
     else {
         return Geom::Empty;
     };
-    let _ = (ev, tessellation);
+    let _ = ev;
     let params = scad_font::TextParams {
         text,
         size: *size,
@@ -35,8 +35,10 @@ pub fn text(ev: &mut Evaluator, node: &Node) -> Geom {
         language,
         script: script.as_deref().unwrap_or(""),
     };
-    let tolerance = size.abs() * 1e-3;
-    let contours: Vec<Vec<DVec2>> = scad_font::shape_contours(&params, tolerance)
+    // OpenSCAD splits every curve into the same number of steps (fitted
+    // to its output): max(2, floor(fragments(size) / 8) + 1).
+    let steps = (crate::fragments::fragments(size.abs(), tessellation) / 8 + 1).max(2);
+    let contours: Vec<Vec<DVec2>> = scad_font::shape_contours_steps(&params, steps)
         .into_iter()
         .map(|c| c.into_iter().map(DVec2::from_array).collect())
         .collect();
