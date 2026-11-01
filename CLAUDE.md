@@ -146,6 +146,10 @@ Principi:
     trasparenti, risultati 2D mostrati ma non esportabili.
   - Verificato nell'app con `porta_carte` (anche in modalità assieme con `%`) e `separatore`:
     geometria corretta, 5636 triangoli come OpenSCAD, 40–80 ms.
+- 2026-11-01: pulizia. Rimossi i worktree `C:\Software\wt-*`, i branch già uniti
+  (`m3-*`, `milestone-2-*`), le cartelle di build degli agenti e il contenuto di `out/`.
+  **Prossimi passi dettagliati in `docs/next-steps.md`** (brief autosufficiente per altri agenti,
+  priorità: milestone 4 Customizer).
 
 ## Note per le prossime milestone
 
