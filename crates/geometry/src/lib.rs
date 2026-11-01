@@ -48,6 +48,32 @@ impl Aabb {
     pub fn center(&self) -> DVec3 {
         (self.min + self.max) * 0.5
     }
+
+    /// Whether the ray `origin + t * direction` (`t >= 0`) meets the box
+    /// (slab test).
+    pub fn hit_by_ray(&self, origin: DVec3, direction: DVec3) -> bool {
+        if self.is_empty() {
+            return false;
+        }
+        let (mut near, mut far) = (0.0f64, f64::INFINITY);
+        for axis in 0..3 {
+            let (o, d) = (origin[axis], direction[axis]);
+            let (lo, hi) = (self.min[axis], self.max[axis]);
+            if d == 0.0 {
+                if o < lo || o > hi {
+                    return false;
+                }
+                continue;
+            }
+            let (t0, t1) = ((lo - o) / d, (hi - o) / d);
+            near = near.max(t0.min(t1));
+            far = far.min(t0.max(t1));
+            if near > far {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 impl Default for Aabb {
@@ -167,6 +193,60 @@ impl Mesh {
         edges.sort_unstable();
         edges
     }
+
+    /// The triangle hit first by the ray `origin + t * direction` (`t > 0`),
+    /// seen from either side: back faces are visible in the viewer, so they
+    /// can be picked too. `direction` need not be normalized; the hit's
+    /// `t` is in units of its length.
+    pub fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+        if direction == DVec3::ZERO || !self.bounds().hit_by_ray(origin, direction) {
+            return None;
+        }
+        let mut best: Option<RayHit> = None;
+        for (triangle, [a, b, c]) in self.triangles().enumerate() {
+            if let Some(t) = ray_triangle(origin, direction, a, b, c)
+                && best.is_none_or(|hit| t < hit.t)
+            {
+                best = Some(RayHit { triangle, t });
+            }
+        }
+        best
+    }
+}
+
+/// Where a ray meets a mesh: see [`Mesh::raycast`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RayHit {
+    /// Index of the triangle that was hit.
+    pub triangle: usize,
+    /// Ray parameter of the hit point (`origin + t * direction`).
+    pub t: f64,
+}
+
+/// Möller–Trumbore ray/triangle intersection, two-sided. Returns the ray
+/// parameter of the hit, or `None` for a miss, a hit behind the origin or
+/// a ray parallel to the triangle.
+fn ray_triangle(origin: DVec3, dir: DVec3, a: DVec3, b: DVec3, c: DVec3) -> Option<f64> {
+    let (e1, e2) = (b - a, c - a);
+    let p = dir.cross(e2);
+    let det = e1.dot(p);
+    // Relative threshold, so tiny and huge models behave alike.
+    if det.abs() <= f64::EPSILON * e1.length() * e2.length() * dir.length() {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let s = origin - a;
+    let u = s.dot(p) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let q = s.cross(e1);
+    let v = dir.dot(q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let t = e2.dot(q) * inv;
+    (t > 0.0).then_some(t)
 }
 
 #[cfg(test)]
@@ -233,5 +313,48 @@ mod tests {
     fn empty_bounds() {
         assert!(Mesh::new().bounds().is_empty());
         assert_eq!(Aabb::EMPTY.size(), DVec3::ZERO);
+    }
+
+    #[test]
+    fn raycast_finds_nearest_face() {
+        let mesh = Mesh::from_triangle_soup(cube_soup());
+        // From above, straight down through the top face.
+        let hit = mesh
+            .raycast(DVec3::new(0.3, 0.6, 5.0), DVec3::new(0.0, 0.0, -2.0))
+            .expect("hit");
+        assert!((hit.t - 2.0).abs() < 1e-12, "{hit:?}");
+        assert_eq!(mesh.face_normal(hit.triangle), DVec3::Z);
+        // From the side, along +x: the left face (-x) comes first.
+        let hit = mesh
+            .raycast(DVec3::new(-3.0, 0.5, 0.25), DVec3::X)
+            .expect("hit");
+        assert_eq!(mesh.face_normal(hit.triangle), -DVec3::X);
+        assert!((hit.t - 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn raycast_sees_back_faces_and_ignores_what_is_behind() {
+        let mesh = Mesh::from_triangle_soup(cube_soup());
+        // From inside, the first face ahead is a back face.
+        let hit = mesh.raycast(DVec3::splat(0.5), DVec3::Z).expect("hit");
+        assert_eq!(mesh.face_normal(hit.triangle), DVec3::Z);
+        assert!((hit.t - 0.5).abs() < 1e-12);
+        // Pointing away, beside, or with no direction: no hit.
+        assert!(mesh.raycast(DVec3::new(0.5, 0.5, 2.0), DVec3::Z).is_none());
+        assert!(mesh.raycast(DVec3::new(2.0, 2.0, 5.0), -DVec3::Z).is_none());
+        assert!(mesh.raycast(DVec3::splat(5.0), DVec3::ZERO).is_none());
+        assert!(Mesh::new().raycast(DVec3::ZERO, DVec3::X).is_none());
+    }
+
+    #[test]
+    fn ray_box_slab_test() {
+        let aabb = Aabb {
+            min: DVec3::ZERO,
+            max: DVec3::new(1.0, 1.0, 0.0), // flat, like a 2D result
+        };
+        assert!(aabb.hit_by_ray(DVec3::new(0.5, 0.5, 1.0), -DVec3::Z));
+        assert!(!aabb.hit_by_ray(DVec3::new(0.5, 0.5, 1.0), DVec3::Z));
+        assert!(!aabb.hit_by_ray(DVec3::new(2.0, 0.5, 1.0), -DVec3::Z));
+        assert!(!Aabb::EMPTY.hit_by_ray(DVec3::ZERO, DVec3::X));
     }
 }

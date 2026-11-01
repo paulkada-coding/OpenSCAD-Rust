@@ -69,7 +69,12 @@ pub struct Evaluator<'a> {
     files: &'a [std::path::PathBuf],
     pub diagnostics: Vec<Diagnostic>,
     pub sources: Vec<SourceRef>,
-    source_index: HashMap<SourceRef, u32>,
+    /// Parallel to `sources`: the chain of nodes that produced each one,
+    /// outermost first, ending with the source itself.
+    pub source_paths: Vec<Vec<SourceRef>>,
+    source_index: HashMap<Vec<SourceRef>, u32>,
+    /// Sources of the node being evaluated and of its ancestors.
+    path: Vec<SourceRef>,
     /// Kernel original ID -> index into `sources`.
     pub original_sources: HashMap<u32, u32>,
     /// World transform of the node being evaluated.
@@ -94,7 +99,9 @@ impl<'a> Evaluator<'a> {
             files,
             diagnostics: Vec::new(),
             sources: Vec::new(),
+            source_paths: Vec::new(),
             source_index: HashMap::new(),
+            path: Vec::new(),
             original_sources: HashMap::new(),
             world: DMat4::IDENTITY,
             highlighted: Vec::new(),
@@ -142,11 +149,20 @@ impl<'a> Evaluator<'a> {
         }
     }
 
+    /// Index into `sources` of `source` reached through the current chain
+    /// of nodes: the same code reached through different module calls gets
+    /// different entries, so a picked triangle can show the whole chain.
     fn source_id(&mut self, source: Option<SourceRef>) -> Option<u32> {
         let source = source?;
-        Some(*self.source_index.entry(source).or_insert_with(|| {
+        let mut path = self.path.clone();
+        if path.last() != Some(&source) {
+            path.push(source);
+        }
+        let next = self.sources.len() as u32;
+        Some(*self.source_index.entry(path).or_insert_with_key(|path| {
             self.sources.push(source);
-            (self.sources.len() - 1) as u32
+            self.source_paths.push(path.clone());
+            next
         }))
     }
 
@@ -210,6 +226,21 @@ impl<'a> Evaluator<'a> {
 
     pub fn eval(&mut self, node: &Node) -> Result<Geom> {
         self.check_cancel()?;
+        // Nodes that share a span (a module call and its body's group)
+        // count once in the chain.
+        let pushed = node
+            .source
+            .filter(|s| self.path.last() != Some(s))
+            .inspect(|s| self.path.push(*s))
+            .is_some();
+        let result = self.eval_node(node);
+        if pushed {
+            self.path.pop();
+        }
+        result
+    }
+
+    fn eval_node(&mut self, node: &Node) -> Result<Geom> {
         let src = node.source;
         Ok(match &node.kind {
             NodeKind::Group { .. } | NodeKind::Union | NodeKind::Color { .. } => {

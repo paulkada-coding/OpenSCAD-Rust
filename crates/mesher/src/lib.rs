@@ -92,8 +92,13 @@ pub struct RenderOutput {
     /// of the primitive it comes from, or `u32::MAX` when unknown. May be
     /// empty when source tracking is unavailable.
     pub triangle_sources: Vec<u32>,
-    /// Source locations referenced by `triangle_sources`.
+    /// Source locations referenced by `triangle_sources`. The same location
+    /// can appear more than once, reached through different module calls.
     pub sources: Vec<SourceRef>,
+    /// Parallel to `sources`: the chain of nested instantiations that
+    /// produced each one (e.g. a module call, a `translate()` inside it,
+    /// then the primitive), outermost first, ending with the source itself.
+    pub source_paths: Vec<Vec<SourceRef>>,
     /// OpenSCAD-style warnings raised while meshing (without the
     /// `WARNING:` prefix).
     pub warnings: Vec<String>,
@@ -187,6 +192,7 @@ fn render_inner(
         }
     }
     out.sources = std::mem::take(&mut ev.sources);
+    out.source_paths = std::mem::take(&mut ev.source_paths);
     (out.warnings, out.warning_sources) = ev
         .diagnostics
         .iter()
