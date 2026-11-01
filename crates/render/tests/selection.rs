@@ -1,3 +1,4 @@
+#![cfg(not(target_arch = "wasm32"))]
 //! Picking and selection highlight, rendered on a real (or software) GPU.
 //! Skipped with a note when the machine has no usable adapter.
 

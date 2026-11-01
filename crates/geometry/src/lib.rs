@@ -118,6 +118,42 @@ impl Mesh {
         mesh
     }
 
+    /// Builds a mesh from flat arrays, as other programs (or JavaScript)
+    /// hand them over: x, y, z of each vertex, then three vertex indices per
+    /// triangle. Malformed input is rejected with an explanation.
+    pub fn from_flat(vertices: &[f64], triangles: &[u32]) -> Result<Self, String> {
+        if !vertices.len().is_multiple_of(3) {
+            return Err(format!(
+                "vertices must hold 3 coordinates per vertex, got {} numbers",
+                vertices.len()
+            ));
+        }
+        if !triangles.len().is_multiple_of(3) {
+            return Err(format!(
+                "triangles must hold 3 indices per triangle, got {} numbers",
+                triangles.len()
+            ));
+        }
+        if let Some(bad) = vertices.iter().find(|v| !v.is_finite()) {
+            return Err(format!("vertex coordinate {bad} is not a finite number"));
+        }
+        let count = vertices.len() / 3;
+        if let Some(bad) = triangles.iter().find(|&&i| i as usize >= count) {
+            return Err(format!(
+                "vertex index {bad} out of range ({count} vertices)"
+            ));
+        }
+        Ok(Self {
+            vertices: vertices
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|&c| DVec3::from_array(c))
+                .collect(),
+            triangles: triangles.as_chunks::<3>().0.to_vec(),
+        })
+    }
+
     pub fn is_empty(&self) -> bool {
         self.triangles.is_empty()
     }
@@ -356,5 +392,18 @@ mod tests {
         assert!(!aabb.hit_by_ray(DVec3::new(0.5, 0.5, 1.0), DVec3::Z));
         assert!(!aabb.hit_by_ray(DVec3::new(2.0, 0.5, 1.0), -DVec3::Z));
         assert!(!Aabb::EMPTY.hit_by_ray(DVec3::ZERO, DVec3::X));
+    }
+
+    #[test]
+    fn mesh_from_flat_arrays() {
+        let mesh = Mesh::from_flat(&[0., 0., 0., 1., 0., 0., 0., 1., 0.], &[0, 1, 2]).unwrap();
+        assert_eq!(mesh.triangle_count(), 1);
+        assert_eq!(mesh.vertices[1], DVec3::X);
+        assert_eq!(mesh.face_normal(0), DVec3::Z);
+        assert!(Mesh::from_flat(&[0., 0.], &[]).is_err());
+        assert!(Mesh::from_flat(&[0., 0., 0.], &[0, 0]).is_err());
+        assert!(Mesh::from_flat(&[0., 0., 0.], &[0, 0, 1]).is_err());
+        assert!(Mesh::from_flat(&[0., f64::NAN, 0.], &[]).is_err());
+        assert!(Mesh::from_flat(&[], &[]).unwrap().is_empty());
     }
 }

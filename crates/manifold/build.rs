@@ -27,6 +27,16 @@ fn main() {
     println!("cargo:rerun-if-changed=shim");
     println!("cargo:rerun-if-changed=vendor");
 
+    // The kernel is C++: building it for the browser needs a C++ toolchain
+    // for WebAssembly, not set up yet. Fail with a clear message instead of
+    // CMake's linker errors.
+    if env::var("CARGO_CFG_TARGET_ARCH").is_ok_and(|a| a == "wasm32") {
+        panic!(
+            "the Manifold kernel is not available for WebAssembly yet, so `manifold` and \
+             `mesher` (and the crates using them) cannot be built for wasm32; see docs/web.md"
+        );
+    }
+
     // Clipper2's CMakeLists writes `clipper.version.h` into its source tree,
     // which would touch vendor/ and retrigger this script on every build:
     // configure a private copy instead.

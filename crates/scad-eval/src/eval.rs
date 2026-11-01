@@ -94,6 +94,8 @@ pub fn default_library_paths() -> Vec<PathBuf> {
 }
 
 fn platform_user_library_dirs() -> Vec<PathBuf> {
+    // No user folders in a browser (wasm32): nothing gets pushed.
+    #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
     let mut out = Vec::new();
     #[cfg(windows)]
     {

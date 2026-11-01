@@ -12,7 +12,9 @@ use crate::camera::{OrbitCamera, Projection};
 /// Storage format of the output texture. Its bytes are sRGB-encoded, which is
 /// what egui and PNG files expect.
 pub const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
-/// Format used while rendering, so the hardware does the sRGB encoding.
+/// Format used while rendering, so blending happens on linear colors and
+/// the hardware does the sRGB encoding. A final pass copies the result into
+/// the output texture (see `shaders/encode.wgsl`).
 const RENDER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const SAMPLE_COUNT: u32 = 4;
@@ -134,10 +136,11 @@ struct Targets {
     size: [u32; 2],
     msaa_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
-    output: wgpu::Texture,
-    /// sRGB view of `output`, used as the MSAA resolve target.
+    /// MSAA resolve target, in [`RENDER_FORMAT`].
     resolve_view: wgpu::TextureView,
-    /// Plain view of `output` for sampling as raw sRGB bytes.
+    /// Reads `resolve_view` in the encode pass.
+    encode_bind_group: wgpu::BindGroup,
+    output: wgpu::Texture,
     output_view: wgpu::TextureView,
 }
 
@@ -147,6 +150,8 @@ pub struct Scene {
     translucent_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
     edge_pipeline: wgpu::RenderPipeline,
+    encode_pipeline: wgpu::RenderPipeline,
+    encode_bind_group_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     layer_bind_group_layout: wgpu::BindGroupLayout,
@@ -335,12 +340,16 @@ impl Scene {
             Some(wgpu::BlendState::ALPHA_BLENDING),
         );
 
+        let (encode_pipeline, encode_bind_group_layout) = create_encode_pipeline(device);
+
         let mut scene = Self {
             background_pipeline,
             mesh_pipeline,
             translucent_pipeline,
             line_pipeline,
             edge_pipeline,
+            encode_pipeline,
+            encode_bind_group_layout,
             uniform_buffer,
             bind_group,
             layer_bind_group_layout,
@@ -515,7 +524,7 @@ impl Scene {
         let size = [size[0].max(1), size[1].max(1)];
         let recreated = self.targets.as_ref().is_none_or(|t| t.size != size);
         if recreated {
-            self.targets = Some(create_targets(device, size));
+            self.targets = Some(create_targets(device, &self.encode_bind_group_layout, size));
         }
         let targets = self.targets.as_ref().expect("targets were just created");
 
@@ -612,6 +621,27 @@ impl Scene {
                 pass.draw(0..layer.triangles.count, 0..1);
             }
         }
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("encode"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.output_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.encode_pipeline);
+            pass.set_bind_group(0, &targets.encode_bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         queue.submit([encoder.finish()]);
         recreated
     }
@@ -680,13 +710,66 @@ fn create_vertex_buffer<T: Pod>(device: &wgpu::Device, label: &str, data: &[T]) 
     }
 }
 
-fn create_targets(device: &wgpu::Device, size: [u32; 2]) -> Targets {
+/// The pass that copies the rendered image into [`OUTPUT_FORMAT`].
+fn create_encode_pipeline(device: &wgpu::Device) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/encode.wgsl"));
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("encode"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        }],
+    });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("encode"),
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        immediate_size: 0,
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("encode"),
+        layout: Some(&layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_encode"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: Default::default(),
+        depth_stencil: None,
+        multisample: Default::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_encode"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: OUTPUT_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
+    (pipeline, bind_group_layout)
+}
+
+fn create_targets(
+    device: &wgpu::Device,
+    encode_layout: &wgpu::BindGroupLayout,
+    size: [u32; 2],
+) -> Targets {
     let extent = wgpu::Extent3d {
         width: size[0],
         height: size[1],
         depth_or_array_layers: 1,
     };
-    let texture = |label: &str, format, samples, usage, view_formats: &[wgpu::TextureFormat]| {
+    let texture = |label: &str, format, samples, usage| {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: extent,
@@ -695,7 +778,7 @@ fn create_targets(device: &wgpu::Device, size: [u32; 2]) -> Targets {
             dimension: wgpu::TextureDimension::D2,
             format,
             usage,
-            view_formats,
+            view_formats: &[],
         })
     };
 
@@ -704,14 +787,18 @@ fn create_targets(device: &wgpu::Device, size: [u32; 2]) -> Targets {
         RENDER_FORMAT,
         SAMPLE_COUNT,
         wgpu::TextureUsages::RENDER_ATTACHMENT,
-        &[],
     );
     let depth = texture(
         "scene depth",
         DEPTH_FORMAT,
         SAMPLE_COUNT,
         wgpu::TextureUsages::RENDER_ATTACHMENT,
-        &[],
+    );
+    let resolved = texture(
+        "scene resolved",
+        RENDER_FORMAT,
+        1,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
     );
     let output = texture(
         "scene output",
@@ -720,18 +807,23 @@ fn create_targets(device: &wgpu::Device, size: [u32; 2]) -> Targets {
         wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_SRC,
-        &[RENDER_FORMAT],
     );
-    let resolve_view = output.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(RENDER_FORMAT),
-        ..Default::default()
+    let resolve_view = resolved.create_view(&Default::default());
+    let encode_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("encode"),
+        layout: encode_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&resolve_view),
+        }],
     });
     Targets {
         size,
         msaa_view: msaa.create_view(&Default::default()),
         depth_view: depth.create_view(&Default::default()),
-        output_view: output.create_view(&Default::default()),
         resolve_view,
+        encode_bind_group,
+        output_view: output.create_view(&Default::default()),
         output,
     }
 }
