@@ -193,10 +193,13 @@ impl<'a> Evaluator<'a> {
                         }
                     }
                 };
+                // A fresh original ID, so its triangles can be traced back.
+                let Some(id) = source else {
+                    return Some(m);
+                };
+                let m = m.as_original();
                 let original = m.original_id();
-                if original >= 0
-                    && let Some(id) = source
-                {
+                if original >= 0 {
                     self.original_sources.insert(original as u32, id);
                 }
                 Some(m)
