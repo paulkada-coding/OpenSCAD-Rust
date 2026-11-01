@@ -3328,6 +3328,7 @@ dependencies = [
  "mesh-io",
  "mesher",
  "scad-eval",
+ "scad-syntax",
 ]
 
 [[package]]

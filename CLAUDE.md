@@ -52,16 +52,17 @@ crates/
   scad-font/     scoperta font (`fontdb` + Liberation Sans SIL OFL), shaping `rustybuzz`, metriche e contorni 2D `skrifa`
   scad-eval/     interprete, scope lessicali + `$` dinamiche, `SourceCache` cross-run, `Value::Object`, builtin
   scadr/         CLI compatibile con OpenSCAD (`-o x.csg|x.echo`, `-L`, `-D`, `--enable=...`, exit code e diagnostica)
-  manifold/      Manifold v3.5.4 vendorizzato + shim C++ anti-eccezioni (pronto per M3)
+  manifold/      Manifold v3.5.4 vendorizzato + shim C++ anti-eccezioni; triangolazione, ID originali, Clipper2 su interi
   geometry/      Mesh indicizzata f64, Aabb, volume/area, spigoli vivi, albero CSG (`Node` con `source` + `root_call`) ed export `.csg`
-  mesh-io/       STL lettura (binario/ASCII) e scrittura; poi 3MF/OBJ, import SVG/DXF
+  mesher/        albero CSG → mesh con Manifold: tassellazione identica a OpenSCAD, 2D su griglia 2^-27, estrusioni, text, import, provenienza triangolo→sorgente
+  mesh-io/       STL (binario/ASCII, formato OpenSCAD) e OFF, lettura e scrittura; poi 3MF/OBJ, import SVG/DXF
   render/        Scene wgpu offscreen (MSAA 4x, sRGB), OrbitCamera Z-up, rendering headless → PNG
   ai/            (da fare) provider Claude/Gemini, strumenti
   app/           UI egui: menu, pannello modello, viewport, barra di stato, impostazioni persistenti
 tools/
   compat-runner/ confronto automatico parallelo con gli output attesi di OpenSCAD Nightly
 examples/        file .scad di prova (+ STL generati con OpenSCAD)
-tests/compat/    suite di compatibilità con 215 casi `.scad` + `.csg`/`.log` di riferimento
+tests/compat/    suite testuale (217 casi `.csg`/`.log`) + `geometry/` (100 casi con metriche delle mesh di OpenSCAD)
 ```
 
 Note tecniche del rendering:
@@ -83,9 +84,9 @@ Principi:
 
 1. [x] **Fondamenta** — toolchain, workspace, finestra con viewer wgpu che carica/ruota un STL
 2. [x] **Linguaggio** — parser, espressioni, funzioni, moduli, `echo`, test vs OpenSCAD (**215/215 — 100%**)
-3. [ ] **Primo render** — primitive 3D, trasformazioni, booleane Manifold, export STL
+3. [x] **Primo render** — primitive 3D, trasformazioni, booleane Manifold, export STL (**99/100 casi geometrici**)
 4. [ ] **Customizer** — parametri da commenti `// [min:step:max]`, slider, preset JSON, render incrementale
-5. [ ] **2D e avanzate** — extrude, offset, hull, minkowski, text, import
+5. [ ] **2D e avanzate** — fatti in M3: extrude, offset, hull, minkowski, text, import STL/OFF, surface .dat. Mancano: import SVG/DXF/3MF/OBJ, surface PNG, regola di suddivisione di `linear_extrude` con scala non uniforme, sfera "octa" con `$fn > 12`
 6. [ ] **Compatibilità** — MCAD, BOSL2, corpus di modelli reali
 7. [ ] **AI** — pannello Claude/Gemini con tool use
 8. [ ] **Modellazione diretta**
@@ -130,6 +131,21 @@ Principi:
   eframe in `%APPDATA%\openscad-rust\data\app.ron` (insieme a finestra e pannelli). Verificato:
   a riposo "costante" ridisegna di continuo, "su richiesta" consuma 0 CPU; caricamento e
   salvataggio funzionano. Il flicker sul monitor dell'utente va confermato da lui.
+- 2026-11-01: **milestone 3 completata** (tre filoni in parallelo, branch `m3-mesher` e `m3-export`
+  in worktree `C:\Software\wt-*`, uniti in `main`).
+  - `mesher`: tassellazione vertice per vertice identica a OpenSCAD (primitive, 2D, estrusioni,
+    text, surface; triangolazione delle facce come il tessellatore di OpenSCAD), booleane batch
+    Manifold, `!`/`#`/`%`, provenienza triangolo→nodo, annullamento, diagnostiche con posizione.
+    Regole ricavate dall'oracolo documentate nei commenti.
+  - `scadr -o x.stl|x.off` con messaggi e exit code di OpenSCAD; `stl` = ASCII come OpenSCAD.
+  - Banco geometrico `compat-runner --geometry`: **100 casi, 39 identici, 60 equivalenti, 1 fallito**
+    (`lex_scale_vector`: area +0,01%, regola di suddivisione con scala non uniforme non trovata).
+  - App: apre `.scad` (anche drag & drop), calcolo in un thread di lavoro con annullamento, console
+    colorata, ricarica automatica quando cambiano il file o le sue dipendenze, F5, inquadratura solo
+    al primo caricamento, ultima geometria valida tenuta in caso di errore, `#` rosso e `%` grigio
+    trasparenti, risultati 2D mostrati ma non esportabili.
+  - Verificato nell'app con `porta_carte` (anche in modalità assieme con `%`) e `separatore`:
+    geometria corretta, 5636 triangoli come OpenSCAD, 40–80 ms.
 
 ## Note per le prossime milestone
 
@@ -137,7 +153,11 @@ Principi:
   lavoro dedicato che possiede la cache (non condividerla tra thread).
 - `SourceCache` copre `include`/`use`; il file principale viene sempre ri-analizzato (nell'app
   arriva dal buffer dell'editor, non dal disco).
-- `scad-font::shape_contours` è pronto ma non ancora usato: servirà a `text()` in M5.
+- `text()` è già meshato dal mesher tramite `scad-font` (vertici identici a OpenSCAD).
+- `RenderOutput::triangle_sources` + `sources` danno la provenienza di ogni triangolo: base per il
+  clic sul modello → riga di codice (non ancora collegato nell'app).
+- Il mesher non è incrementale: ogni ricarica ricalcola tutto (40–80 ms sui modelli dell'utente).
+  Per il Customizer (M4) valutare una cache per sotto-albero se servisse.
 - Gli override `-D` sono la base per i valori del Customizer (M4): stessa semantica di
   OpenSCAD (assegnazione aggiunta in coda al file → sostituisce l'espressione nella posizione
   originale).
@@ -149,6 +169,9 @@ cargo run -p app                                   # avvia l'app
 cargo run -p app -- examples\supporto.stl          # apre un file
 cargo run -p app -- --render-png in.stl out\x.png 1280x800   # snapshot senza finestra
 cargo test --workspace
+cargo build -p scadr; cargo run -p compat-runner                 # suite testuale vs OpenSCAD
+cargo run -p compat-runner -- --geometry -v                      # suite geometrica vs OpenSCAD
+.	argetdebugscadr.exe -o outx.stl in.scad                  # export STL (ASCII come OpenSCAD; binstl per il binario)
 cargo clippy --workspace --all-targets
 cargo fmt --all
 & 'C:\Program Files\OpenSCAD (Nightly)\openscad.exe' --backend=manifold -o out.stl in.scad  # oracolo

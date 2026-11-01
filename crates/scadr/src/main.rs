@@ -17,6 +17,7 @@ use geometry::Mesh;
 use mesh_io::StlFormat;
 use mesher::{RenderOptions, Shape};
 use scad_eval::{EvalOptions, Evaluator, Level, Message, default_library_paths};
+use scad_syntax::TextRange;
 
 const USAGE: &str = "uso: scadr [-o output.csg|.echo|.stl|.off|-] [--export-format asciistl|binstl|stl|off|csg|echo] [-L dir]... [-D var=expr]... [--enable=feature]... input.scad";
 
@@ -313,7 +314,9 @@ fn main() -> ExitCode {
     let result = match format {
         ExportFormat::Csg => write_bytes(output, geometry::to_csg_text(&nodes).as_bytes()),
         ExportFormat::Echo => write_bytes(output, log_buf.as_bytes()),
-        ExportFormat::Stl(_) | ExportFormat::Off => return export_geometry(&nodes, output, format),
+        ExportFormat::Stl(_) | ExportFormat::Off => {
+            return export_geometry(&evaluator, &nodes, output, format);
+        }
     };
     if let Err(err) = result {
         eprintln!("ERROR: {err}");
@@ -326,9 +329,16 @@ fn main() -> ExitCode {
 /// Renders the top-level nodes and writes a 3D mesh file, with OpenSCAD's
 /// messages: render warnings, `Current top level object is empty.` /
 /// `... is not a 3D object.` (exit 1, no file) or the render summary.
-fn export_geometry(nodes: &[geometry::csg::Node], output: &Path, format: ExportFormat) -> ExitCode {
+fn export_geometry(
+    evaluator: &Evaluator,
+    nodes: &[geometry::csg::Node],
+    output: &Path,
+    format: ExportFormat,
+) -> ExitCode {
     let start = Instant::now();
-    let rendered = match mesher::render(nodes, &RenderOptions::default()) {
+    // import()/surface() paths resolve against the file containing the call.
+    let files: Vec<PathBuf> = evaluator.files().iter().map(|f| f.path.clone()).collect();
+    let rendered = match mesher::render_with_files(nodes, &RenderOptions::default(), &files) {
         Ok(rendered) => rendered,
         Err(err) => {
             eprintln!("ERROR: {err}");
@@ -336,8 +346,15 @@ fn export_geometry(nodes: &[geometry::csg::Node], output: &Path, format: ExportF
         }
     };
     let elapsed = start.elapsed();
-    for warning in &rendered.warnings {
-        eprintln!("WARNING: {warning}");
+    for diagnostic in &rendered.diagnostics {
+        let label = match diagnostic.level {
+            mesher::Level::Warning => "WARNING",
+            mesher::Level::Error => "ERROR",
+        };
+        let location = diagnostic.source.map_or_else(String::new, |s| {
+            evaluator.location(s.file, TextRange::new(s.start.into(), s.end.into()))
+        });
+        eprintln!("{label}: {}{location}", diagnostic.text);
     }
     let mesh = match &rendered.shape {
         Shape::Solid(mesh) if !mesh.is_empty() => mesh,

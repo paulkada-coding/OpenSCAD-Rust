@@ -164,14 +164,27 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
     let options = RenderOptions {
         cancel: Some(job.cancel.clone()),
     };
-    match mesher::render(&nodes, &options) {
+    // import()/surface() paths resolve against the file containing the call.
+    let files: Vec<PathBuf> = evaluator.files().iter().map(|f| f.path.clone()).collect();
+    match mesher::render_with_files(&nodes, &options, &files) {
         Ok(output) => {
-            result
-                .console
-                .extend(output.warnings.iter().map(|w| ConsoleLine {
-                    kind: LineKind::Warning,
-                    text: format!("WARNING: {w}"),
-                }));
+            for diagnostic in &output.diagnostics {
+                let location = diagnostic.source.map_or_else(String::new, |s| {
+                    let line = evaluator
+                        .files()
+                        .get(s.file as usize)
+                        .map_or(0, |f| f.index.line(s.start.into()));
+                    location_suffix(&evaluator, s.file, line)
+                });
+                let (kind, label) = match diagnostic.level {
+                    mesher::Level::Warning => (LineKind::Warning, "WARNING"),
+                    mesher::Level::Error => (LineKind::Error, "ERROR"),
+                };
+                result.console.push(ConsoleLine {
+                    kind,
+                    text: format!("{label}: {}{location}", diagnostic.text),
+                });
+            }
             result.output = Some(output);
         }
         Err(mesher::RenderError::Cancelled) => {}
@@ -184,19 +197,24 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
     result
 }
 
+/// ` in file name.scad, line N` (file name only: the console is narrow).
+fn location_suffix(evaluator: &Evaluator, file: u32, line: u32) -> String {
+    evaluator
+        .files()
+        .get(file as usize)
+        .map(|f| {
+            let name = f.path.file_name().map_or_else(
+                || f.path.display().to_string(),
+                |n| n.to_string_lossy().into(),
+            );
+            format!(" in file {name}, line {line}")
+        })
+        .unwrap_or_default()
+}
+
 fn push_message(console: &mut Vec<ConsoleLine>, evaluator: &Evaluator, message: &Message) {
     let location = match (message.file, message.line) {
-        (Some(file), Some(line)) => evaluator
-            .files()
-            .get(file as usize)
-            .map(|f| {
-                let name = f.path.file_name().map_or_else(
-                    || f.path.display().to_string(),
-                    |n| n.to_string_lossy().into(),
-                );
-                format!(" in file {name}, line {line}")
-            })
-            .unwrap_or_default(),
+        (Some(file), Some(line)) => location_suffix(evaluator, file, line),
         _ => String::new(),
     };
     let (kind, text) = match message.level {
