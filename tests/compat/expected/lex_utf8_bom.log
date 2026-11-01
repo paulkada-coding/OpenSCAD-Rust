@@ -1,0 +1,3 @@
+ECHO: "bom"
+WARNING: Ignoring unknown variable "y" in file lex_utf8_bom.scad, line 4
+ECHO: undef

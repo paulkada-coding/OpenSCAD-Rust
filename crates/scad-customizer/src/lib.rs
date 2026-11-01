@@ -17,7 +17,7 @@ pub use extract::{extract_parameters, extract_parameters_with_defines};
 pub use param_json::{format_json_number, to_param_json};
 pub use presets::{
     PresetError, PresetFile, coerce_preset_value, preset_path_for_scad, read_preset_file,
-    resolve_preset_overrides, write_preset_file,
+    resolve_preset_overrides, write_file_atomic, write_preset_file,
 };
 
 /// Default group name assigned by OpenSCAD before any `/* [Group] */` header.

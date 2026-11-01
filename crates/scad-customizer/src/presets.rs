@@ -13,6 +13,19 @@ fn default_format_version() -> String {
     "1".to_string()
 }
 
+/// Accepts `"fileFormatVersion": "1"` as well as a bare number, so a
+/// hand-written file is not rejected (and later overwritten) over its type.
+fn deserialize_format_version<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match JsonValue::deserialize(deserializer)? {
+        JsonValue::String(s) => s,
+        JsonValue::Number(n) => n.to_string(),
+        _ => default_format_version(),
+    })
+}
+
 /// Errors raised while reading or writing a Customizer preset JSON file.
 #[derive(Debug, Error)]
 pub enum PresetError {
@@ -51,7 +64,11 @@ impl PresetError {
 /// In-memory representation of an OpenSCAD `<stem>.json` preset file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PresetFile {
-    #[serde(rename = "fileFormatVersion", default = "default_format_version")]
+    #[serde(
+        rename = "fileFormatVersion",
+        default = "default_format_version",
+        deserialize_with = "deserialize_format_version"
+    )]
     pub file_format_version: String,
     #[serde(rename = "parameterSets", default)]
     pub parameter_sets: BTreeMap<String, BTreeMap<String, JsonValue>>,
@@ -96,11 +113,14 @@ impl PresetFile {
     }
 
     /// Renames `old_name` to `new_name`. Returns `false` if `old_name` did not
-    /// exist.
+    /// exist or another set is already called `new_name` (never overwritten).
     pub fn rename_set(&mut self, old_name: &str, new_name: impl Into<String>) -> bool {
         let new_name = new_name.into();
         if old_name == new_name {
             return self.parameter_sets.contains_key(old_name);
+        }
+        if self.parameter_sets.contains_key(&new_name) {
+            return false;
         }
         let Some(entries) = self.parameter_sets.remove(old_name) else {
             return false;
@@ -151,9 +171,23 @@ pub fn write_preset_file(path: &Path, presets: &PresetFile) -> Result<(), Preset
             path: path.to_path_buf(),
             source,
         })?;
-    std::fs::write(path, json).map_err(|source| PresetError::Io {
+    write_file_atomic(path, json.as_bytes()).map_err(|source| PresetError::Io {
         path: path.to_path_buf(),
         source,
+    })
+}
+
+/// Writes `contents` to a temporary file next to `path`, then renames it over
+/// `path`: a crash or a full disk never leaves a truncated user file, and a
+/// file watcher never reads a half-written one.
+pub fn write_file_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let name = path
+        .file_name()
+        .map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
+    let temp = path.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    std::fs::write(&temp, contents)?;
+    std::fs::rename(&temp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&temp);
     })
 }
 
@@ -336,5 +370,28 @@ secret    = 99;
         assert!(serialized.contains("\"fileFormatVersion\": \"1\""));
         assert!(serialized.contains("\"extraTopKey\": 123"));
         assert!(serialized.contains("\"renamed\""));
+    }
+
+    #[test]
+    fn rename_never_overwrites_and_numeric_version_is_accepted() {
+        let mut presets: PresetFile = serde_json::from_str(
+            r#"{"fileFormatVersion": 1, "parameterSets": {"a": {}, "b": {}}}"#,
+        )
+        .unwrap();
+        assert_eq!(presets.file_format_version, "1");
+        assert!(!presets.rename_set("a", "b"));
+        assert!(presets.contains_set("a") && presets.contains_set("b"));
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_file() {
+        let dir = std::env::temp_dir().join(format!("presets-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("model.json");
+        std::fs::write(&path, "old contents that are longer").unwrap();
+        write_file_atomic(&path, b"new").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -27,6 +27,10 @@ Updated on 2026-11-01, after milestone 3 (commit `8cde69a` on `main`).
 - **Language**: all repository content (code, comments, identifiers, documentation, UI strings,
   commit messages) is in English; only the conversation with the user is in Italian. Messages that
   imitate OpenSCAD keep its exact English.
+- **Never lose user data.** Write user files (`.scad`, `<stem>.json`, exports) atomically
+  (temporary file + rename, `scad_customizer::write_file_atomic`), never overwrite a file that could
+  not be parsed, never rewrite a value that changed on disk since it was read, and ask before
+  replacing or deleting something the user named.
 - **Style**: imitate the surrounding code (comment density, names, idioms). `cargo fmt --all`.
 
 ### Mandatory checks before every commit
@@ -35,7 +39,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets          # must report 0 warnings
 cargo test --workspace
 cargo build -p scadr
-cargo run -p compat-runner                      # text suite: must stay at 217/217
+cargo run -p compat-runner                      # text suite: must stay at 218/218
 cargo run -p compat-runner -- --geometry        # geometry suite: today 39 exact, 60 equivalent, 1 failed
 ```
 The geometry suite must not get worse: the only case failing today is `lex_scale_vector`
@@ -54,12 +58,12 @@ The geometry suite must not get worse: the only case failing today is `lex_scale
 - The GPU is an RTX 5080 (plus an integrated AMD one); the app uses Vulkan on the NVIDIA.
 
 ### Delivery workflow (it has worked well so far)
-- Work on a dedicated **branch** (e.g. `m4-customizer`), with small, atomic commits and
+- Work on a dedicated **branch** (e.g. `m5-model-to-code`), with small, atomic commits and
   conventional messages (`feat(crate): …`, `fix(crate): …`).
 - At the end, write `docs/<branch>-review.md` with: summary, verification results,
   commit-by-commit detail (what and why), points of attention for the review.
 - Do not push and do not merge into `main`: Claude does the review and the merge.
-- Update the "Stato" section of `CLAUDE.md` with a dated entry.
+- Update the "Status" section of `CLAUDE.md` with a dated entry.
 
 ---
 
@@ -67,11 +71,12 @@ The geometry suite must not get worse: the only case failing today is `lex_scale
 
 | Area | Status |
 |---|---|
-| Language (parser + interpreter) | Complete, 217/217 cases identical to OpenSCAD |
+| Language (parser + interpreter) | Complete, 218/218 cases identical to OpenSCAD |
 | Geometry (`crates/mesher`) | 99/100 cases equivalent to OpenSCAD, 39 vertex for vertex |
-| `scadr` CLI | `-o x.csg/.echo/.stl/.off`, `-D`, `-L`, `--enable`, `--export-format`; OpenSCAD messages and exit codes |
-| App | Opens `.scad`/`.stl`, background computation, console, automatic reload, transparent `#`/`%`, STL export, persistent settings (constant frame rate for OLED/G-Sync) |
-| Missing | Customizer, integrated editor, model→code click, SVG/DXF/3MF/OBJ import, 3MF export, verified BOSL2 compatibility, AI |
+| `scadr` CLI | `-o x.csg/.echo/.stl/.off/.param`, `-p`/`-P` presets, `-D`, `-L`, `--enable`, `--export-format`; OpenSCAD messages and exit codes |
+| App | Opens `.scad`/`.stl`, background computation, console, automatic reload, transparent `#`/`%`, STL export, persistent settings (constant frame rate for OLED/G-Sync), Customizer panel with presets and "Apply to file" |
+| Customizer | 17/17 `.param` cases identical to OpenSCAD; `scad-customizer` crate |
+| Missing | Integrated editor, model→code click, SVG/DXF/3MF/OBJ import, 3MF export, verified BOSL2 compatibility, AI |
 
 To be confirmed by the user (cannot be verified automatically on this machine, simulated clicks
 do not reach the window): mouse interaction in the viewport, export from the menu, absence of
@@ -79,7 +84,10 @@ flicker on their OLED monitor with the constant frame rate.
 
 ---
 
-## 2. Milestone 4 — Customizer (high priority)
+## 2. Milestone 4 — Customizer (done, merged into `main` on 2026-11-01)
+
+Kept as a record of the specification; see `docs/m4-customizer-review.md` for what was built.
+The next work is the backlog in §3, starting from §3.1.
 
 Goal for the user: open a `.scad`, see a panel with the project's parameters
 (sliders, checkboxes, drop-down menus), move them and see the model update immediately; save and
@@ -161,7 +169,7 @@ previous line. They must work perfectly.
 
 ---
 
-## 3. Backlog after M4 (in order of value for the user)
+## 3. Next work (in order of value for the user)
 
 ### 3.1 Click on the model → code
 - The mesher already provides `RenderOutput::triangle_sources` + `sources` (provenance of every

@@ -544,9 +544,13 @@ impl ViewerApp {
                             *seen = new_mtime;
                         }
                     }
+                    // A change still inside the debounce window was not
+                    // rendered yet: render the file as it is now on disk.
+                    let path = doc.path.clone();
+                    self.evaluate(&path);
                     self.status = Status::Info(format!(
                         "Applied {count} parameter(s) to {}",
-                        file_name(&doc.path)
+                        file_name(&path)
                     ));
                 }
             }

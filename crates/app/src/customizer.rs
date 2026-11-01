@@ -8,9 +8,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use eframe::egui;
 use scad_customizer::{
-    DEFAULT_GROUP, NumberOption, ParamConstraint, ParamValue, Parameter, PresetFile, StringOption,
-    VectorRange, extract_parameters, preset_path_for_scad, read_preset_file,
-    resolve_preset_overrides, write_preset_file,
+    DEFAULT_GROUP, NumberOption, ParamConstraint, ParamValue, Parameter, PresetError, PresetFile,
+    StringOption, VectorRange, extract_parameters, preset_path_for_scad, read_preset_file,
+    resolve_preset_overrides, write_file_atomic, write_preset_file,
 };
 use serde::{Deserialize, Serialize};
 
@@ -70,6 +70,7 @@ pub enum CustomizerEvent {
 enum PresetModal {
     SaveAs { name: String },
     Rename { old_name: String, new_name: String },
+    Delete { name: String },
 }
 
 /// Active Customizer state for the currently open `.scad` document.
@@ -80,6 +81,9 @@ pub struct CustomizerState {
     parameters: Vec<Parameter>,
     values: Vec<ParamValue>,
     presets: PresetFile,
+    /// Why `<stem>.json` could not be read. While set, the file is never
+    /// written, so a file we do not understand is not replaced by an empty one.
+    preset_error: Option<String>,
     selected_preset: Option<String>,
     modal: Option<PresetModal>,
     dirty_since: Option<Instant>,
@@ -92,7 +96,7 @@ impl CustomizerState {
     pub fn load_for_file(scad_path: &Path, persisted: &PersistedCustomizer) -> Self {
         let preset_path = preset_path_for_scad(scad_path);
         let preset_mtime = modified_time(&preset_path);
-        let presets = read_preset_file(&preset_path).unwrap_or_default();
+        let (presets, preset_error) = load_presets(&preset_path);
         let parameters = std::fs::read_to_string(scad_path)
             .map(|src| extract_parameters(&src).parameters)
             .unwrap_or_default();
@@ -130,6 +134,7 @@ impl CustomizerState {
             parameters,
             values,
             presets,
+            preset_error,
             selected_preset,
             modal: None,
             dirty_since: None,
@@ -139,8 +144,18 @@ impl CustomizerState {
 
     /// Re-extracts parameters when the `.scad` (or companion `.json`) file
     /// changes on disk, keeping modified values whose parameter still exists
-    /// with the same type.
+    /// with the same type. While the file has syntax errors the current
+    /// parameters are kept: error recovery may drop some of them, and their
+    /// modified values would be lost for good.
     pub fn reload_from_disk(&mut self) {
+        self.refresh_presets_if_changed();
+        let Ok(src) = std::fs::read_to_string(&self.scad_path) else {
+            return;
+        };
+        if !scad_syntax::parse(&src).errors().is_empty() {
+            return;
+        }
+
         let modified: BTreeMap<String, ParamValue> = self
             .parameters
             .iter()
@@ -149,11 +164,7 @@ impl CustomizerState {
             .map(|(p, v)| (p.name.clone(), v.clone()))
             .collect();
 
-        if let Ok(src) = std::fs::read_to_string(&self.scad_path) {
-            self.parameters = extract_parameters(&src).parameters;
-        }
-        self.refresh_presets_if_changed();
-
+        self.parameters = extract_parameters(&src).parameters;
         self.values = self
             .parameters
             .iter()
@@ -171,7 +182,7 @@ impl CustomizerState {
         let now_mtime = modified_time(&self.preset_path);
         if now_mtime != self.preset_mtime {
             self.preset_mtime = now_mtime;
-            self.presets = read_preset_file(&self.preset_path).unwrap_or_default();
+            (self.presets, self.preset_error) = load_presets(&self.preset_path);
             if self
                 .selected_preset
                 .as_deref()
@@ -398,11 +409,41 @@ impl CustomizerState {
             if ui
                 .add_enabled(has_named, egui::Button::new("Delete").small())
                 .clicked()
-                && let Some(name) = self.selected_preset.take()
+                && let Some(name) = self.selected_preset.clone()
             {
-                status_event = Some(self.delete_preset(&name));
+                self.modal = Some(PresetModal::Delete { name });
             }
         });
+
+        if let Some(error) = &self.preset_error {
+            ui.colored_label(
+                ui.visuals().error_fg_color,
+                format!("Presets are read-only: {error}"),
+            );
+        }
+
+        if let Some(PresetModal::Delete { name }) = &self.modal {
+            let name = name.clone();
+            let mut close_modal = false;
+            ui.add_space(2.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("Delete preset '{name}'?"));
+                if ui.small_button("Delete").clicked() {
+                    self.selected_preset = None;
+                    status_event = Some(self.delete_preset(&name));
+                    close_modal = true;
+                }
+                if ui.small_button("Cancel").clicked()
+                    || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                {
+                    close_modal = true;
+                }
+            });
+            if close_modal {
+                self.modal = None;
+            }
+            return status_event;
+        }
 
         if let Some(modal) = &mut self.modal {
             let mut close_modal = false;
@@ -414,6 +455,7 @@ impl CustomizerState {
                 let buf = match modal {
                     PresetModal::SaveAs { name } => name,
                     PresetModal::Rename { new_name, .. } => new_name,
+                    PresetModal::Delete { .. } => unreachable!("handled above"),
                 };
                 let resp = ui.add(
                     egui::TextEdit::singleline(buf)
@@ -435,6 +477,7 @@ impl CustomizerState {
                         PresetModal::Rename { old_name, .. } => {
                             confirm_rename = Some((old_name.clone(), trimmed));
                         }
+                        PresetModal::Delete { .. } => {}
                     }
                     close_modal = true;
                 }
@@ -449,8 +492,20 @@ impl CustomizerState {
                 self.modal = None;
             }
             if let Some(new_name) = confirm_save_as {
-                self.selected_preset = Some(new_name.clone());
-                status_event = Some(self.save_preset(&new_name));
+                status_event = Some(if self.presets.contains_set(&new_name) {
+                    CustomizerEvent::Status {
+                        is_error: true,
+                        message: format!(
+                            "A preset named '{new_name}' already exists: select it and use Save to overwrite it"
+                        ),
+                    }
+                } else {
+                    let event = self.save_preset(&new_name);
+                    if self.presets.contains_set(&new_name) {
+                        self.selected_preset = Some(new_name);
+                    }
+                    event
+                });
             }
             if let Some((old_name, new_name)) = confirm_rename {
                 status_event = Some(self.rename_preset(&old_name, &new_name));
@@ -522,7 +577,15 @@ impl CustomizerState {
                 ParamConstraint::UnconstrainedBool => {}
                 ParamConstraint::NumberRange { min, max, step } => {
                     if let ParamValue::Number(mut val) = self.values[idx] {
-                        let decimals = step_decimals(step);
+                        let default = &self.parameters[idx].default;
+                        let decimals = step_decimals(step).map(|d| {
+                            d.max(value_decimals(min))
+                                .max(value_decimals(max))
+                                .max(match default {
+                                    ParamValue::Number(n) => value_decimals(*n),
+                                    _ => 0,
+                                })
+                        });
                         let lo = min.min(max);
                         let hi = min.max(max);
                         let mut slider = egui::Slider::new(&mut val, lo..=hi);
@@ -533,7 +596,7 @@ impl CustomizerState {
                             slider = slider.max_decimals(dec);
                         }
                         let resp = ui.add(slider);
-                        if resp.changed() {
+                        if resp.changed() && val.is_finite() {
                             val = clean_step_float(val, decimals);
                             self.values[idx] = ParamValue::Number(val);
                             if resp.drag_stopped() || resp.lost_focus() {
@@ -548,15 +611,15 @@ impl CustomizerState {
                 }
                 ParamConstraint::NumberSpinbox { step } => {
                     if let ParamValue::Number(mut val) = self.values[idx] {
+                        // No rounding here: an unannotated number has step 1
+                        // but may hold any value (`wall = 1.2;`); egui already
+                        // aims dragged values at round numbers.
                         let speed = if step.abs() > 0.0 { step.abs() } else { 1.0 };
-                        let decimals = step_decimals(speed);
-                        let mut drag = egui::DragValue::new(&mut val).speed(speed);
-                        if let Some(dec) = decimals {
-                            drag = drag.max_decimals(dec);
-                        }
+                        let drag = egui::DragValue::new(&mut val)
+                            .speed(speed)
+                            .max_decimals(MAX_DECIMALS);
                         let resp = ui.add(drag);
-                        if resp.changed() {
-                            val = clean_step_float(val, decimals);
+                        if resp.changed() && val.is_finite() {
                             self.values[idx] = ParamValue::Number(val);
                             if resp.drag_stopped() || resp.lost_focus() {
                                 self.mark_immediate_change();
@@ -620,10 +683,14 @@ impl CustomizerState {
                                         } else {
                                             1.0
                                         };
-                                        (sp, step_decimals(sp))
+                                        let dec = step_decimals(sp).map(|d| {
+                                            d.max(value_decimals(r.min)).max(value_decimals(r.max))
+                                        });
+                                        (sp, dec)
                                     }
                                     None => (0.1, None),
                                 };
+                                let before = *elem;
                                 let mut drag = egui::DragValue::new(elem).speed(speed);
                                 if let Some(VectorRange { min, max, .. }) = range {
                                     drag = drag.range(min.min(max)..=min.max(max));
@@ -632,7 +699,9 @@ impl CustomizerState {
                                     drag = drag.max_decimals(dec);
                                 }
                                 let resp = ui.add_sized([item_w, 20.0], drag);
-                                if resp.changed() {
+                                if resp.changed() && !elem.is_finite() {
+                                    *elem = before;
+                                } else if resp.changed() {
                                     *elem = clean_step_float(*elem, decimals);
                                     changed = true;
                                 }
@@ -688,7 +757,23 @@ impl CustomizerState {
             .collect()
     }
 
+    /// Refuses to write `<stem>.json` when it could not be read.
+    fn presets_read_only(&self) -> Option<CustomizerEvent> {
+        self.preset_error
+            .as_ref()
+            .map(|error| CustomizerEvent::Status {
+                is_error: true,
+                message: format!(
+                    "Not changing '{}', it could not be read: {error}",
+                    self.preset_path.display()
+                ),
+            })
+    }
+
     fn save_preset(&mut self, name: &str) -> CustomizerEvent {
+        if let Some(refused) = self.presets_read_only() {
+            return refused;
+        }
         let entries = self.current_named_values();
         self.presets.upsert_set(name.to_string(), &entries);
         match write_preset_file(&self.preset_path, &self.presets) {
@@ -707,6 +792,15 @@ impl CustomizerState {
     }
 
     fn rename_preset(&mut self, old_name: &str, new_name: &str) -> CustomizerEvent {
+        if let Some(refused) = self.presets_read_only() {
+            return refused;
+        }
+        if old_name != new_name && self.presets.contains_set(new_name) {
+            return CustomizerEvent::Status {
+                is_error: true,
+                message: format!("A preset named '{new_name}' already exists"),
+            };
+        }
         if !self.presets.rename_set(old_name, new_name.to_string()) {
             return CustomizerEvent::None;
         }
@@ -727,6 +821,9 @@ impl CustomizerState {
     }
 
     fn delete_preset(&mut self, name: &str) -> CustomizerEvent {
+        if let Some(refused) = self.presets_read_only() {
+            return refused;
+        }
         if !self.presets.delete_set(name) {
             return CustomizerEvent::None;
         }
@@ -759,6 +856,24 @@ impl CustomizerState {
                 };
             }
         };
+        // The file may have changed since the parameters were extracted (the
+        // watcher polls): only rewrite assignments that are still the same
+        // literal, never an expression the user has just typed.
+        let on_disk = extract_parameters(&source).parameters;
+        let unchanged = updates.iter().all(|(name, _)| {
+            let ours = self.parameters.iter().find(|p| &p.name == name);
+            let theirs = on_disk.iter().find(|p| &p.name == name);
+            matches!((ours, theirs), (Some(a), Some(b)) if a.default.values_equal(&b.default))
+        });
+        if !unchanged {
+            self.reload_from_disk();
+            return CustomizerEvent::Status {
+                is_error: true,
+                message:
+                    "The file changed on disk: parameters reloaded, check them and apply again"
+                        .into(),
+            };
+        }
         let refs: Vec<(&str, &str)> = updates
             .iter()
             .map(|(name, lit)| (name.as_str(), lit.as_str()))
@@ -772,7 +887,7 @@ impl CustomizerState {
                 };
             }
         };
-        if let Err(err) = std::fs::write(&self.scad_path, &rewritten) {
+        if let Err(err) = write_file_atomic(&self.scad_path, rewritten.as_bytes()) {
             return CustomizerEvent::Status {
                 is_error: true,
                 message: format!("Cannot write '{}': {err}", self.scad_path.display()),
@@ -797,6 +912,18 @@ impl CustomizerState {
             }
         }
         groups
+    }
+}
+
+/// Reads `<stem>.json`. A missing file is simply an empty preset list; any
+/// other failure is returned so the file is left alone.
+fn load_presets(path: &Path) -> (PresetFile, Option<String>) {
+    match read_preset_file(path) {
+        Ok(presets) => (presets, None),
+        Err(PresetError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            (PresetFile::default(), None)
+        }
+        Err(err) => (PresetFile::default(), Some(err.to_string())),
     }
 }
 
@@ -896,20 +1023,29 @@ fn string_enum_combo(ui: &mut egui::Ui, current: &str, options: &[StringOption])
     changed.then_some(chosen)
 }
 
+/// Most decimals shown or kept by a number control.
+const MAX_DECIMALS: usize = 6;
+
 /// Infers sensible decimal precision from a step size (`1.0` -> `Some(0)`,
-/// `0.05` -> `Some(2)`), capped at 6 decimals.
+/// `0.05` -> `Some(2)`), capped at [`MAX_DECIMALS`].
 fn step_decimals(step: f64) -> Option<usize> {
     let s = step.abs();
     if !s.is_finite() || s == 0.0 {
         return None;
     }
-    let text = format!("{s}");
-    if let Some((_, frac)) = text.split_once('.') {
-        let trimmed = frac.trim_end_matches('0');
-        Some(trimmed.len().min(6))
-    } else {
-        Some(0)
+    Some(value_decimals(s))
+}
+
+/// Decimals in the shortest representation of `value` (`0.125` -> 3),
+/// capped at [`MAX_DECIMALS`].
+fn value_decimals(value: f64) -> usize {
+    if !value.is_finite() {
+        return 0;
     }
+    format!("{}", value.abs())
+        .split_once('.')
+        .map_or(0, |(_, frac)| frac.trim_end_matches('0').len())
+        .min(MAX_DECIMALS)
 }
 
 /// Cleans IEEE-754 step-addition artefacts (such as `-0.25 + 11 * 0.05 =
@@ -934,6 +1070,9 @@ mod tests {
         assert_eq!(step_decimals(0.125), Some(3));
         assert_eq!(clean_step_float(-0.25 + 11.0 * 0.05, Some(2)), 0.3);
         assert_eq!(clean_step_float(-0.0, Some(2)), 0.0);
+        assert_eq!(value_decimals(0.625), 3);
+        assert_eq!(value_decimals(-2.5), 1);
+        assert_eq!(value_decimals(10.0), 0);
     }
 
     #[test]
@@ -983,6 +1122,49 @@ mod tests {
         assert_eq!(
             on_disk,
             "width = 75; // [10:1:75]\nmode = true;\ncube(width);\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn user_data_is_never_lost() {
+        let dir = std::env::temp_dir().join(format!("app-customizer-safe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let scad_path = dir.join("part.scad");
+        let json_path = dir.join("part.json");
+        std::fs::write(&scad_path, "a = 1;\nb = 2;\ncube(a);\n").unwrap();
+        std::fs::write(&json_path, "not json, maybe another tool's file").unwrap();
+
+        let mut state = CustomizerState::load_for_file(&scad_path, &PersistedCustomizer::default());
+        state.values[1] = ParamValue::Number(5.0);
+
+        // An unreadable preset file is reported and never overwritten.
+        assert!(state.preset_error.is_some());
+        assert!(matches!(
+            state.save_preset("x"),
+            CustomizerEvent::Status { is_error: true, .. }
+        ));
+        assert_eq!(
+            std::fs::read_to_string(&json_path).unwrap(),
+            "not json, maybe another tool's file"
+        );
+
+        // While the file does not parse, parameters and values are kept.
+        std::fs::write(&scad_path, "a = \"oops;\nb = 2;\ncube(a);\n").unwrap();
+        state.reload_from_disk();
+        assert_eq!(state.active_defines(), vec![("b".into(), "5".into())]);
+
+        // Apply never replaces an expression typed since the last reload.
+        std::fs::write(&scad_path, "a = 1;\nb = a * 2;\ncube(a);\n").unwrap();
+        assert!(matches!(
+            state.apply_to_file(),
+            CustomizerEvent::Status { is_error: true, .. }
+        ));
+        assert_eq!(
+            std::fs::read_to_string(&scad_path).unwrap(),
+            "a = 1;\nb = a * 2;\ncube(a);\n"
         );
 
         let _ = std::fs::remove_dir_all(&dir);

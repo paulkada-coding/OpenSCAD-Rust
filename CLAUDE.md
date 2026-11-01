@@ -69,7 +69,7 @@ crates/
 tools/
   compat-runner/   automatic parallel comparison with OpenSCAD Nightly's expected outputs (text, `--params`, `--geometry`)
 examples/          sample .scad files (+ STL generated with OpenSCAD)
-tests/compat/      text suite (217 `.csg`/`.log` cases) + `params/` (17 `.param`/`.log` cases) + `geometry/` (100 cases with OpenSCAD mesh metrics)
+tests/compat/      text suite (218 `.csg`/`.log` cases) + `params/` (17 `.param`/`.log` cases) + `geometry/` (100 cases with OpenSCAD mesh metrics)
 ```
 
 Rendering notes:
@@ -93,7 +93,7 @@ Principles:
 1. [x] **Foundations** — toolchain, workspace, window with a wgpu viewer that loads/rotates an STL
 2. [x] **Language** — parser, expressions, functions, modules, `echo`, tests vs OpenSCAD (**215/215 — 100%**)
 3. [x] **First render** — 3D primitives, transformations, Manifold booleans, STL export (**99/100 geometry cases**)
-4. [x] **Customizer** — parameters from `// [min:step:max]` comments, `.param` export (**17/17 — 100%**), sliders, `<stem>.json` presets (`-p`/`-P`), live debounced rendering, CST "Apply to file" (branch `m4-customizer`, pending review)
+4. [x] **Customizer** — parameters from `// [min:step:max]` comments, `.param` export (**17/17 — 100%**), sliders, `<stem>.json` presets (`-p`/`-P`), live debounced rendering, CST "Apply to file" (merged 2026-11-01)
 5. [ ] **2D and advanced** — done in M3: extrude, offset, hull, minkowski, text, STL/OFF import, `.dat` surface. Missing: SVG/DXF/3MF/OBJ import, PNG surface, `linear_extrude` subdivision rule with non-uniform scale, "octa" sphere with `$fn > 12`
 6. [ ] **Compatibility** — MCAD, BOSL2, corpus of real models
 7. [ ] **AI** — Claude/Gemini panel with tool use
@@ -161,7 +161,7 @@ Principles:
 - 2026-11-01: **published on GitHub** with README, GPL-3.0-or-later license, CI (fmt, clippy,
   tests, compatibility suites on `windows-latest`). All repository content translated to
   English, app UI included.
-- 2026-11-01: **milestone 4 (Customizer) done on branch `m4-customizer` (pending review).**
+- 2026-11-01: **milestone 4 (Customizer) done on branch `m4-customizer`** (by Argon Gemini).
   Finished the repository-wide English translation (`ddff869`), added surgical rowan CST assignment
   literal rewriting (`scad_syntax::replace_assignment_value` / `replace_assignment_values`),
   created `scad-customizer` (OpenSCAD-compatible parameter extraction, range-adjustment warnings,
@@ -171,6 +171,22 @@ Principles:
   1..=4D vectors, presets Save/Save as/Rename/Delete, 100 ms live debounce, reload preservation,
   per-file `eframe` persistence, "Apply to file", and configurable Right/Left panel side in
   Settings). Detailed review report in `docs/m4-customizer-review.md`.
+- 2026-11-01: **Claude's review of `m4-customizer` done, merged into `main`.** Independently
+  verified: fmt/clippy/tests clean, 217/217 text, 17/17 params (the expected `.param`/`.log`
+  files were regenerated from OpenSCAD and are identical: genuine), 99/100 geometry, `-p`/`-P`
+  STL identical to OpenSCAD's, panel checked in the app with `porta_carte`. Fixes applied (none
+  of them lost data in tests, all could have for the user):
+  - presets: an unreadable `<stem>.json` is reported and never overwritten (it used to be
+    replaced by an empty file on "Save as"); numeric `fileFormatVersion` accepted; rename and
+    "Save as" never replace another preset; delete asks for confirmation;
+  - user files written atomically (`scad_customizer::write_file_atomic`);
+  - parameters and modified values kept while the file has syntax errors;
+  - "Apply to file" refuses to replace a value that changed on disk since it was read, and the
+    model is re-rendered after applying;
+  - number controls: no rounding of unannotated numbers (`wall = 1.2` stayed `1`), slider
+    precision also from min/max/default, non-finite input ignored;
+  - parser: a leading UTF-8 byte order mark is accepted like OpenSCAD (new case
+    `lex_utf8_bom`, **218/218**).
 
 ## Notes for the next milestones
 
@@ -182,7 +198,7 @@ Principles:
 - `RenderOutput::triangle_sources` + `sources` give the provenance of every triangle: the basis
   for clicking the model → line of code (not yet wired into the app).
 - The mesher is not incremental: every reload recomputes everything (40–80 ms on the user's
-  models). For the Customizer (M4), consider a per-subtree cache if needed.
+  models). M4 measured 39–85 ms per change (315 ms for the `taratura` mode): a per-subtree cache is not needed yet.
 - `-D` overrides are the basis for Customizer values (M4): same semantics as OpenSCAD (an
   assignment appended at the end of the file → replaces the expression at its original
   position).

@@ -7,8 +7,8 @@ compatibility tests.
 
 ![The porta_carte.scad model rendered by the app](docs/images/porta_carte.png)
 
-> **Status: early development (0.1).** The language and 3D rendering work and are verified
-> automatically against OpenSCAD. Final name, Customizer, editor and AI assistant are still to
+> **Status: early development (0.1).** The language, 3D rendering and the Customizer work and
+> are verified automatically against OpenSCAD. Final name, editor and AI assistant are still to
 > come (see [Roadmap](#roadmap)).
 
 ## Why
@@ -38,6 +38,11 @@ almost all builtin functions, `echo`/`assert`, `text()` with bundled fonts,
 - Opens `.scad` and `.stl` files from the menu, by drag and drop or from the command line.
 - Reloads automatically when the file or its dependencies change on disk: edit the code in your
   favourite editor and see the result right away.
+- **Customizer** ("Parameters" panel): the parameters annotated in the file (`// [min:step:max]`,
+  dropdowns, `/* [Group] */` tabs, captions) become sliders, spin boxes, dropdowns, checkboxes,
+  text and vector fields; the model updates live while you drag. Presets are saved in the same
+  `<model>.json` file as OpenSCAD's, and "Apply to file" writes the values into the `.scad`
+  keeping comments and formatting.
 - Console with OpenSCAD's messages (`ECHO`, `WARNING`, `ERROR`) and their location in the code.
 - Preset views, perspective/orthographic, grid, axes, edges; `#` shown in transparent red and
   `%` in transparent grey.
@@ -51,7 +56,8 @@ almost all builtin functions, `echo`/`assert`, `text()` with bundled fonts,
 
 | Suite | Cases | Result |
 |---|---|---|
-| Text (messages + CSG tree, byte for byte) | 217 | **217/217** identical |
+| Text (messages + CSG tree, byte for byte) | 218 | **218/218** identical |
+| Customizer (`.param` export, presets, messages) | 17 | **17/17** identical |
 | Geometry (volume, area, bounding box, mesh vertices) | 100 | 39 identical, 60 equivalent, 1 known difference |
 
 The known difference (`linear_extrude` with a non-uniform `scale`) is a 0.01% difference in area.
@@ -100,6 +106,8 @@ scadr -o model.off model.scad
 scadr -o model.csg model.scad                    # CSG tree
 scadr -o model.echo model.scad                   # messages only
 scadr -D "width=40" -D "label=\"hello\"" -o out.stl model.scad
+scadr -o model.param model.scad                  # Customizer parameters as JSON
+scadr -p model.json -P "big box" -o out.stl model.scad   # render with a preset
 scadr -L C:\my\libraries -o out.stl model.scad
 ```
 
@@ -110,6 +118,7 @@ Messages, file formats and exit codes follow OpenSCAD's.
 ```powershell
 cargo test --workspace                            # unit and integration tests
 cargo build -p scadr; cargo run -p compat-runner  # text suite against OpenSCAD
+cargo run -p compat-runner -- --params            # Customizer suite against OpenSCAD
 cargo run -p compat-runner -- --geometry -v       # geometry suite against OpenSCAD
 cargo clippy --workspace --all-targets
 cargo fmt --all --check
@@ -123,21 +132,22 @@ new cases. GitHub Actions CI runs all of these checks.
 
 ```
 crates/
-  scad-syntax/   lexer, parser with a lossless syntax tree (rowan), AST
-  scad-eval/     interpreter and builtin functions
-  scad-font/     fonts, shaping and outlines for text()
-  geometry/      meshes, CSG tree with references to the source code
-  manifold/      Manifold CSG kernel (C++, vendored) with safe Rust bindings
-  mesher/        CSG tree → meshes, OpenSCAD-identical tessellation
-  mesh-io/       STL/OFF reading and writing
-  render/        wgpu rendering (also windowless, to PNG)
-  scadr/         command-line executable
-  app/           egui user interface
+  scad-syntax/     lexer, parser with a lossless syntax tree (rowan), AST, code edits
+  scad-customizer/ Customizer parameters, .param export, presets
+  scad-eval/       interpreter and builtin functions
+  scad-font/       fonts, shaping and outlines for text()
+  geometry/        meshes, CSG tree with references to the source code
+  manifold/        Manifold CSG kernel (C++, vendored) with safe Rust bindings
+  mesher/          CSG tree → meshes, OpenSCAD-identical tessellation
+  mesh-io/         STL/OFF reading and writing
+  render/          wgpu rendering (also windowless, to PNG)
+  scadr/           command-line executable
+  app/             egui user interface
 tools/
-  compat-runner/ automatic comparison with OpenSCAD
-tests/compat/    test cases and OpenSCAD's expected results
-examples/        example models
-docs/            technical notes and work plan
+  compat-runner/   automatic comparison with OpenSCAD
+tests/compat/      test cases and OpenSCAD's expected results
+examples/          example models
+docs/              technical notes and work plan
 ```
 
 Developer documentation:
@@ -151,7 +161,7 @@ Developer documentation:
 1. [x] Foundations: window, GPU viewer, STL
 2. [x] Complete OpenSCAD language
 3. [x] 3D rendering and STL export
-4. [ ] Customizer: parameters from comments, sliders, presets
+4. [x] Customizer: parameters from comments, sliders, presets
 5. [ ] SVG/DXF/3MF/OBJ import, 3MF/OBJ export, remaining geometry cases
 6. [ ] Compatibility with real-world libraries (BOSL2, MCAD)
 7. [ ] Integrated AI assistant (Claude, Gemini)

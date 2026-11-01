@@ -27,7 +27,7 @@ tests/compat/
                                    (ABSENT if OpenSCAD writes no file, e.g. parse errors)
 ```
 
-Topic prefixes (217 cases):
+Topic prefixes (218 cases):
 
 | Prefix | Cases | Coverage |
 |---|---|---|
@@ -42,7 +42,7 @@ Topic prefixes (217 cases):
 | `include_` / `use_` | 4 / 2 | `include` and `use` semantics |
 | `func_` / `module_` | 13 / 9 | functions, function literals, arguments, recursion, modules, `children()` |
 | `builtin_` | 15 | built-in functions (`len`, `concat`, `lookup`, `search`, `rands`, `is_*`, objects…) |
-| `err_` / `lex_` | 16 / 3 | `assert`, parse errors, comments, identifiers, deprecated modules |
+| `err_` / `lex_` | 16 / 4 | `assert`, parse errors, comments, identifiers, deprecated modules, UTF-8 byte order mark |
 | `csg_` | 56 | CSG export of every built-in module, transforms, modifiers, number formatting |
 | `model_` | 12 | multi-feature real-world models (parametric box, gear, bracket, vase, `porta_carte`, `separatore`…) |
 
