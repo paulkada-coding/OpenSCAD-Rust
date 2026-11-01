@@ -80,6 +80,9 @@ pub struct Evaluator<'a> {
     pub background: Vec<(Node, DMat4)>,
     /// Inside a `%` subtree, `#` is not collected again.
     in_background: bool,
+    /// Sources of the geometries last returned by `eval_children`, for the
+    /// warnings of the operation that consumes them.
+    child_sources: Vec<Option<SourceRef>>,
 }
 
 type Result<T> = std::result::Result<T, RenderError>;
@@ -97,6 +100,7 @@ impl<'a> Evaluator<'a> {
             highlighted: Vec::new(),
             background: Vec::new(),
             in_background: false,
+            child_sources: Vec::new(),
         }
     }
 
@@ -395,6 +399,7 @@ impl<'a> Evaluator<'a> {
 
     fn eval_children(&mut self, children: &[Node]) -> Result<Vec<Geom>> {
         let mut out = Vec::with_capacity(children.len());
+        let mut sources = Vec::with_capacity(children.len());
         for child in children {
             if child.modifiers.background {
                 if !self.in_background {
@@ -407,7 +412,9 @@ impl<'a> Evaluator<'a> {
                 self.highlighted.push(g.clone().transform(&self.world));
             }
             out.push(g);
+            sources.push(child.source);
         }
+        self.child_sources = sources;
         Ok(out)
     }
 
@@ -429,13 +436,20 @@ impl<'a> Evaluator<'a> {
         source: Option<SourceRef>,
         want: Option<u8>,
     ) -> Vec<Geom> {
-        let children: Vec<Geom> = children.into_iter().filter(|g| g.dim().is_some()).collect();
-        let Some(dim) = want.or_else(|| children.first().and_then(Geom::dim)) else {
-            return children;
+        // Warnings point at the ignored child, like OpenSCAD.
+        let sources = std::mem::take(&mut self.child_sources);
+        let children: Vec<(Geom, Option<SourceRef>)> = children
+            .into_iter()
+            .enumerate()
+            .map(|(i, g)| (g, sources.get(i).copied().flatten().or(source)))
+            .filter(|(g, _)| g.dim().is_some())
+            .collect();
+        let Some(dim) = want.or_else(|| children.first().and_then(|(g, _)| g.dim())) else {
+            return children.into_iter().map(|(g, _)| g).collect();
         };
         let mut mixed = false;
         let mut out = Vec::with_capacity(children.len());
-        for g in children {
+        for (g, source) in children {
             if g.dim() == Some(dim) {
                 out.push(g);
                 continue;

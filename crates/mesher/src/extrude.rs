@@ -71,21 +71,116 @@ impl Builder {
     }
 }
 
-/// Number of slices OpenSCAD uses when `slices` is not given.
-fn default_slices(p: &LinearParams, max_r: f64) -> u32 {
+/// Whether the side walls are curved (twist or non-uniform scale), which
+/// makes OpenSCAD slice the extrusion and subdivide the polygon edges.
+fn is_curved(p: &LinearParams) -> bool {
+    p.twist != 0.0 || p.scale.x != p.scale.y
+}
+
+/// Position of a profile point at fraction `i / n` of the extrusion (XY).
+fn slice_point(q: DVec2, p: &LinearParams, scale: DVec2, i: f64, n: f64) -> DVec2 {
+    let angle = -p.twist * i / n;
+    let s = DVec2::ONE + (scale - DVec2::ONE) * i / n;
+    let (c, sn) = (cos_degrees(angle), sin_degrees(angle));
+    let q = q * s;
+    DVec2::new(c * q.x - sn * q.y, sn * q.x + c * q.y)
+}
+
+/// Number of slices OpenSCAD uses when `slices` is not given (fitted to
+/// its output): one for straight walls; otherwise enough for `$fa` per
+/// slice of twist (`$fn * twist / 360` with `$fn`) and for `$fs` along the
+/// longest path a vertex travels, whichever is smaller.
+fn default_slices(region: &Planar, p: &LinearParams, scale: DVec2) -> u32 {
+    if !is_curved(p) {
+        return 1;
+    }
+    let seg = &p.tessellation;
     let twist = p.twist.abs();
-    let mut slices = 1;
-    if twist > 0.0 {
-        let seg = &p.tessellation;
-        let n = if seg.fn_ > 0.0 {
+    if seg.fn_ > 0.0 {
+        let n = if twist > 0.0 {
             (seg.fn_.max(3.0) * twist / 360.0).ceil()
         } else {
-            (twist / seg.fa).ceil()
+            seg.fn_.max(3.0).floor()
         };
-        slices = clamp_count(n).max(1);
+        return clamp_count(n).max(1);
     }
-    let _ = max_r;
-    slices
+    // Longest vertex path, integrated numerically.
+    const STEPS: u32 = 64;
+    let mut longest: f64 = 0.0;
+    for &q in region.contours.iter().flatten() {
+        let mut len = 0.0;
+        let mut prev = q.extend(0.0);
+        for k in 1..=STEPS {
+            let (k, n) = (f64::from(k), f64::from(STEPS));
+            let cur = slice_point(q, p, scale, k, n).extend(p.height * k / n);
+            len += cur.distance(prev);
+            prev = cur;
+        }
+        longest = longest.max(len);
+    }
+    let by_length = (longest / seg.fs).ceil();
+    let n = if twist > 0.0 {
+        by_length.min((twist / seg.fa).ceil())
+    } else {
+        by_length
+    };
+    clamp_count(n).max(1)
+}
+
+/// Subdivisions of a profile edge on curved walls: `$fs` along the edge
+/// (longest of its bottom and top copies), at most a quarter of the circle
+/// fragments (`$fn / 4` or `360 / $fa / 4`). Fitted to OpenSCAD's twisted
+/// extrusions; for non-uniform scale OpenSCAD splits differently.
+fn edge_segments(a: DVec2, b: DVec2, p: &LinearParams, scale: DVec2) -> u32 {
+    let seg = &p.tessellation;
+    let len = (b - a).length().max(((b - a) * scale).length());
+    let quarter = if seg.fn_ > 0.0 {
+        (seg.fn_.max(3.0) / 4.0).floor()
+    } else {
+        (360.0 / seg.fa / 4.0).floor()
+    };
+    let n = if seg.fn_ > 0.0 {
+        quarter
+    } else {
+        (len / seg.fs).round().min(quarter)
+    };
+    clamp_count(n).max(1)
+}
+
+/// Subdivision count of every edge of every contour (1: none).
+fn edge_counts(region: &Planar, p: &LinearParams, scale: DVec2) -> Vec<Vec<u32>> {
+    let curved = is_curved(p) && p.segments.is_none();
+    region
+        .contours
+        .iter()
+        .map(|c| {
+            (0..c.len())
+                .map(|k| {
+                    if curved {
+                        edge_segments(c[k], c[(k + 1) % c.len()], p, scale)
+                    } else {
+                        1
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Inserts the edge subdivision points (`a * (1 - t) + b * t`), before
+/// the slice transforms are applied.
+fn subdivide(contour: &[DVec2], counts: &[u32]) -> Vec<DVec2> {
+    let mut out = Vec::with_capacity(counts.iter().sum::<u32>() as usize);
+    for (k, &a) in contour.iter().enumerate() {
+        let b = contour[(k + 1) % contour.len()];
+        out.push(a);
+        let n = counts[k];
+        for j in 1..n {
+            let t = f64::from(j) / f64::from(n);
+            out.push(a * (1.0 - t) + b * t);
+        }
+    }
+    out
 }
 
 /// Which diagonal splits the side quads: from the lower vertex of an edge
@@ -98,17 +193,21 @@ pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
     if !(p.height > 0.0 && p.height.is_finite()) || region.is_empty() {
         return None;
     }
-    let max_r = region
-        .contours
-        .iter()
-        .flatten()
-        .map(|q| q.length())
-        .fold(0.0, f64::max);
+    let scale = DVec2::new(p.scale.x.max(0.0), p.scale.y.max(0.0));
     let slices = match p.slices {
         Some(s) => clamp_count(s).max(1),
-        None => default_slices(p, max_r),
+        None => default_slices(region, p, scale),
     };
-    let scale = DVec2::new(p.scale.x.max(0.0), p.scale.y.max(0.0));
+    // Curved walls also get their profile edges subdivided.
+    let counts = edge_counts(region, p, scale);
+    let flat = Planar::new(
+        region
+            .contours
+            .iter()
+            .zip(&counts)
+            .map(|(c, n)| subdivide(c, n))
+            .collect(),
+    );
     // The extrusion runs `height` along the (unit) direction.
     let dir = match p.direction {
         // Already unit length (normalizing again would move it by an ulp).
@@ -125,25 +224,20 @@ pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
     // Vertex ids per slice, contour, point.
     let mut rings: Vec<Vec<Vec<u32>>> = Vec::with_capacity(slices as usize + 1);
     for i in 0..=slices {
-        let (fi, fs) = (f64::from(i), f64::from(slices));
-        let angle = -p.twist * fi / fs;
-        let s = DVec2::ONE + (scale - DVec2::ONE) * fi / fs;
-        let (c, sn) = (cos_degrees(angle), sin_degrees(angle));
         let along = p.height * f64::from(i) / f64::from(slices);
         let shift = if dir == DVec3::Z {
             DVec3::new(0.0, 0.0, along + base.z)
         } else {
             dir * along + base
         };
-        let slice = region
+        let slice = flat
             .contours
             .iter()
             .map(|contour| {
                 contour
                     .iter()
-                    .map(|q| {
-                        let q = q * s;
-                        let r = DVec2::new(c * q.x - sn * q.y, sn * q.x + c * q.y);
+                    .map(|&q| {
+                        let r = slice_point(q, p, scale, f64::from(i), f64::from(slices));
                         b.vertex(DVec3::new(r.x + shift.x, r.y + shift.y, shift.z))
                     })
                     .collect::<Vec<u32>>()
@@ -169,7 +263,7 @@ pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
         }
     }
     // Caps.
-    let tris = region.triangulate();
+    let tris = flat.triangulate();
     for (ring, flip) in [(&rings[0], true), (&rings[slices as usize], false)] {
         let ids: Vec<u32> = ring.iter().flatten().copied().collect();
         for t in &tris {

@@ -42,8 +42,9 @@ pub fn clamp_count(n: f64) -> u32 {
 // Trigonometry in degrees, matching OpenSCAD's vertex coordinates bit for
 // bit (fitted against its STL output): the angle is reduced to the first
 // octant by symmetry, exact values are used at 0°, 30°, 45°, 60° and 90°,
-// and otherwise the correctly rounded sine or cosine of `a * PI / 180` is
-// taken (the platform `sin` is off by one ulp too often).
+// and otherwise the correctly rounded sine or cosine of the angle is
+// taken (the platform `sin` is off by one ulp too often); the radians are
+// `a * (PI / 180)`.
 
 /// Reduces `x` to `[0, 90]`; returns the angle and the signs of its sine
 /// and cosine.
@@ -73,8 +74,8 @@ fn sin_first_quadrant(a: f64) -> f64 {
         45.0 => std::f64::consts::FRAC_1_SQRT_2,
         60.0 => 0.866_025_403_784_438_6,
         90.0 => 1.0,
-        _ if a > 45.0 => dd::cos((90.0 - a) * std::f64::consts::PI / 180.0),
-        _ => dd::sin(a * std::f64::consts::PI / 180.0),
+        _ if a > 45.0 => dd::cos((90.0 - a) * (std::f64::consts::PI / 180.0)),
+        _ => dd::sin(a * (std::f64::consts::PI / 180.0)),
     }
 }
 
