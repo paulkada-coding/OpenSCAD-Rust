@@ -1,0 +1,12 @@
+zero_pos = 0;
+zero_neg = -0.0;
+fixed_lo = 0.0001;
+sci_lo_1 = 0.00009;
+sci_lo_2 = 0.000015;
+fixed_hi_1 = 1e14;
+fixed_hi_2 = 1.5e14;
+fixed_hi_3 = 1.234567890123456e14;
+sci_hi_1 = 1e15;
+sci_hi_2 = 1.5e15;
+sci_hi_3 = 1.5e20;
+tenth_three = 0.3;

@@ -1,0 +1,12 @@
+mode = "stampa"; // [stampa, scatola, coperchio]
+labeled = "corpo"; // [stampa:Print all, corpo:Body only, coperchio:Lid only]
+quoted_opts = "b"; // ["a":"Option A", "b":"Option B"]
+single_opt = "foo"; // [foo]
+single_lbl = "a"; // [a:Alpha]
+prepended_str = "custom"; // [a, b]
+num_range_ignored = "10"; // [10:20]
+max_len = "ROSSO"; // 8
+max_len_zero = ""; // 0
+ignored_words = "abc"; // 8 chars
+url = "http://example.com/[1,2]";
+escaped = "line1\nline2\t\"quoted\"\\end";

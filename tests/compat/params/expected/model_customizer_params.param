@@ -1,0 +1,1 @@
+{"parameters":[{"caption":"Length of the part","group":"Dimensions","initial":50.0,"max":100.0,"min":10.0,"name":"length","step":1.0,"type":"number"},{"caption":"Shape","group":"Dimensions","initial":"round","name":"shape","options":[{"name":"round","value":"round"},{"name":"square","value":"square"}],"type":"string"}],"title":"model_customizer_params"}

@@ -34,6 +34,9 @@ jobs:
           cargo build -p scadr
           cargo run -p compat-runner
 
+      - name: OpenSCAD compatibility (params)
+        run: cargo run -p compat-runner -- --params
+
       # One known geometric difference (lex_scale_vector): reported, not blocking.
       - name: OpenSCAD compatibility (geometry)
         continue-on-error: true

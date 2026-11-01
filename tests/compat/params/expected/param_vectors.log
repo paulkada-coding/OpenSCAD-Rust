@@ -1,0 +1,2 @@
+WARNING: Parameter "v_warn": value -8 is below the declared minimum 0, adjusting minimum value in file param_vectors.scad, line 7
+WARNING: Parameter "v_warn": value 12 is above the declared maximum 10, adjusting maximum value in file param_vectors.scad, line 7

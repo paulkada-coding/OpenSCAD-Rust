@@ -104,3 +104,74 @@ fn preview_is_false_for_geometry_and_true_for_csg() {
     assert_eq!(run.code, Some(0));
     assert!(dir.join("v.dat").exists());
 }
+
+#[test]
+fn param_export_and_presets_match_openscad_cli() {
+    let dir = temp_dir("presets");
+    let scad = "\
+width = 10; // [5:1:50]
+mode = \"a\"; // [a, b, c]
+label = \"ROSSO\"; // 4
+/* [Hidden] */
+secret = 99;
+
+module part() {
+    echo(width, mode, label, secret, $preview);
+    cube([width, 1, 1]);
+}
+part();
+";
+    std::fs::write(dir.join("m.scad"), scad).unwrap();
+    let preset_json = r#"{
+    "fileFormatVersion": "1",
+    "parameterSets": {
+        "wide": {
+            "width": "120",
+            "mode": "b",
+            "label": "ABCDEFGH",
+            "secret": "1"
+        }
+    }
+}
+"#;
+    std::fs::write(dir.join("m.json"), preset_json).unwrap();
+
+    // `.param` export runs with `$preview = true` and writes compact JSON without trailing newline.
+    let run = scadr(&dir, &["-o", "m.param", "m.scad"]);
+    assert_eq!(run.code, Some(0));
+    assert_eq!(run.stderr, "ECHO: 10, \"a\", \"ROSSO\", 99, true\n");
+    let param_bytes = std::fs::read_to_string(dir.join("m.param")).unwrap();
+    assert!(!param_bytes.ends_with('\n'));
+    assert!(param_bytes.contains("\"title\":\"m\""));
+
+    // `-p` + `-P` clamps `width` to 50, truncates `label` to 4 chars, ignores `[Hidden]` `secret`.
+    let run = scadr(
+        &dir,
+        &["-p", "m.json", "-P", "wide", "-o", "m.csg", "m.scad"],
+    );
+    assert_eq!(run.code, Some(0));
+    assert_eq!(run.stderr, "ECHO: 50, \"b\", \"ABCD\", 99, true\n");
+    let csg = std::fs::read_to_string(dir.join("m.csg")).unwrap();
+    assert!(csg.contains("cube(size = [50, 1, 1], center = false);"));
+
+    // Explicit `-D` on a file with `{` wins over `-P` for that variable, matching OpenSCAD.
+    let run = scadr(
+        &dir,
+        &[
+            "-D", "width=25", "-p", "m.json", "-P", "wide", "-o", "m2.csg", "m.scad",
+        ],
+    );
+    assert_eq!(run.code, Some(0));
+    assert_eq!(run.stderr, "ECHO: 25, \"b\", \"ABCD\", 99, true\n");
+
+    // Missing `-p` file prints OpenSCAD's exact error and continues with defaults (exit 0).
+    let run = scadr(
+        &dir,
+        &["-p", "missing.json", "-P", "wide", "-o", "m3.csg", "m.scad"],
+    );
+    assert_eq!(run.code, Some(0));
+    assert_eq!(
+        run.stderr,
+        "ERROR: Cannot open Parameter Set 'missing.json' for reading\nECHO: 10, \"a\", \"ROSSO\", 99, true\n"
+    );
+}
