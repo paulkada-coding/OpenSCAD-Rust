@@ -605,7 +605,17 @@ impl<'a> Evaluator<'a> {
         };
         for s in solids {
             self.check_cancel()?;
-            acc = acc.minkowski_sum(&s);
+            acc = if is_convex(&acc) && is_convex(&s) {
+                // Convex operands: the hull of all pairwise vertex sums.
+                let (a, b) = (acc.to_mesh().vertices, s.to_mesh().vertices);
+                let sums: Vec<DVec3> = a
+                    .iter()
+                    .flat_map(|p| b.iter().map(move |q| *p + *q))
+                    .collect();
+                strict_hull(&sums)
+            } else {
+                acc.minkowski_sum(&s)
+            };
         }
         Ok(match solid_geom(acc) {
             Geom::Solid(m) => Geom::Solid(self.tag(m, source)),
@@ -759,4 +769,43 @@ fn minkowski_2d(a: &Planar, b: &Planar) -> Planar {
         ClipOp::Union,
         FillRule::NonZero,
     ))
+}
+
+/// Whether a solid equals its convex hull (to a relative 1e-9 volume).
+fn is_convex(m: &Manifold) -> bool {
+    let v = m.volume();
+    v > 0.0 && (m.hull().volume() - v).abs() <= 1e-9 * v
+}
+
+/// Convex hull keeping only its corner points: QuickHull also keeps points
+/// lying inside hull faces or on hull edges, which OpenSCAD's convex
+/// minkowski drops (its `hull()` keeps them, like plain QuickHull).
+fn strict_hull(points: &[DVec3]) -> Manifold {
+    let hull = Manifold::hull_of_points(points);
+    let mesh = hull.to_mesh();
+    let mut normals: Vec<Vec<DVec3>> = vec![Vec::new(); mesh.vertices.len()];
+    for (i, t) in mesh.triangles.iter().enumerate() {
+        let n = mesh.face_normal(i);
+        if n == DVec3::ZERO {
+            continue;
+        }
+        for &v in t {
+            let list = &mut normals[v as usize];
+            if !list.iter().any(|m| m.dot(n) > 1.0 - 1e-12) {
+                list.push(n);
+            }
+        }
+    }
+    let corners: Vec<DVec3> = mesh
+        .vertices
+        .iter()
+        .zip(&normals)
+        .filter(|(_, n)| n.len() >= 3)
+        .map(|(p, _)| *p)
+        .collect();
+    if corners.len() == mesh.vertices.len() || corners.len() < 4 {
+        hull
+    } else {
+        Manifold::hull_of_points(&corners)
+    }
 }

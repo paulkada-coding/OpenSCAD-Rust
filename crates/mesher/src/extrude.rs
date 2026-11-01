@@ -245,6 +245,11 @@ pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
             let n = lo.len();
             for k in 0..n {
                 let k1 = (k + 1) % n;
+                if p.twist == 0.0 {
+                    // Straight or scaled walls: quads, split by the tessellator.
+                    b.face(&[lo[k], lo[k1], hi[k1], hi[k]]);
+                    continue;
+                }
                 // Twisted quads are not planar: OpenSCAD splits them along the
                 // shorter diagonal (on ties: the lower one for a positive twist).
                 let v = |i: u32| b.ps.vertices[i as usize];
