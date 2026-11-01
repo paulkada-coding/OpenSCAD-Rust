@@ -266,7 +266,9 @@ dependencies = [
  "mesher",
  "render",
  "rfd",
+ "scad-customizer",
  "scad-eval",
+ "scad-syntax",
  "serde",
 ]
 
@@ -3344,6 +3346,7 @@ dependencies = [
  "geometry",
  "mesh-io",
  "mesher",
+ "scad-customizer",
  "scad-eval",
  "scad-syntax",
 ]

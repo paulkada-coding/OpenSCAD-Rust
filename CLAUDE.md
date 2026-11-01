@@ -54,21 +54,22 @@ documentation and observed behavior.
 
 ```
 crates/
-  scad-syntax/   logos lexer, recursive parser, lossless rowan CST, AST, lexical diagnostics
-  scad-font/     font discovery (`fontdb` + Liberation Sans SIL OFL), `rustybuzz` shaping, `skrifa` metrics and 2D outlines
-  scad-eval/     interpreter, lexical scopes + dynamic `$` variables, cross-run `SourceCache`, `Value::Object`, builtins
-  scadr/         OpenSCAD-compatible CLI (`-o x.csg|x.echo|x.stl|x.off`, `-L`, `-D`, `--enable=...`, exit codes and diagnostics)
-  manifold/      vendored Manifold v3.5.4 + C++ no-exception shim; triangulation, original IDs, integer Clipper2
-  geometry/      indexed f64 mesh, Aabb, volume/area, sharp edges, CSG tree (`Node` with `source` + `root_call`) and `.csg` export
-  mesher/        CSG tree → meshes with Manifold: OpenSCAD-identical tessellation, 2D on a 2^-27 grid, extrusions, text, import, triangle→source provenance
-  mesh-io/       STL (binary/ASCII, OpenSCAD format) and OFF, reading and writing; later 3MF/OBJ, SVG/DXF import
-  render/        offscreen wgpu Scene (MSAA 4x, sRGB), Z-up OrbitCamera, headless rendering → PNG
-  ai/            (to do) Claude/Gemini providers, tools
-  app/           egui UI: menu, model panel, viewport, status bar, persistent settings
+  scad-syntax/     logos lexer, recursive parser, lossless rowan CST, AST, lexical diagnostics, surgical CST edits
+  scad-customizer/ OpenSCAD Customizer parameter extraction, `.param` JSON export, value-to-literal formatting, `<stem>.json` presets
+  scad-font/       font discovery (`fontdb` + Liberation Sans SIL OFL), `rustybuzz` shaping, `skrifa` metrics and 2D outlines
+  scad-eval/       interpreter, lexical scopes + dynamic `$` variables, cross-run `SourceCache`, `Value::Object`, builtins
+  scadr/           OpenSCAD-compatible CLI (`-o x.csg|x.echo|x.param|x.stl|x.off`, `-p`, `-P`, `-L`, `-D`, `--enable=...`, exit codes and diagnostics)
+  manifold/        vendored Manifold v3.5.4 + C++ no-exception shim; triangulation, original IDs, integer Clipper2
+  geometry/        indexed f64 mesh, Aabb, volume/area, sharp edges, CSG tree (`Node` with `source` + `root_call`) and `.csg` export
+  mesher/          CSG tree → meshes with Manifold: OpenSCAD-identical tessellation, 2D on a 2^-27 grid, extrusions, text, import, triangle→source provenance
+  mesh-io/         STL (binary/ASCII, OpenSCAD format) and OFF, reading and writing; later 3MF/OBJ, SVG/DXF import
+  render/          offscreen wgpu Scene (MSAA 4x, sRGB), Z-up OrbitCamera, headless rendering → PNG
+  ai/              (to do) Claude/Gemini providers, tools
+  app/             egui UI: menu, model panel, Customizer ("Parameters") panel + presets, viewport, status bar, persistent settings
 tools/
-  compat-runner/ automatic parallel comparison with OpenSCAD Nightly's expected outputs
-examples/        sample .scad files (+ STL generated with OpenSCAD)
-tests/compat/    text suite (217 `.csg`/`.log` cases) + `geometry/` (100 cases with OpenSCAD mesh metrics)
+  compat-runner/   automatic parallel comparison with OpenSCAD Nightly's expected outputs (text, `--params`, `--geometry`)
+examples/          sample .scad files (+ STL generated with OpenSCAD)
+tests/compat/      text suite (217 `.csg`/`.log` cases) + `params/` (17 `.param`/`.log` cases) + `geometry/` (100 cases with OpenSCAD mesh metrics)
 ```
 
 Rendering notes:
@@ -92,7 +93,7 @@ Principles:
 1. [x] **Foundations** — toolchain, workspace, window with a wgpu viewer that loads/rotates an STL
 2. [x] **Language** — parser, expressions, functions, modules, `echo`, tests vs OpenSCAD (**215/215 — 100%**)
 3. [x] **First render** — 3D primitives, transformations, Manifold booleans, STL export (**99/100 geometry cases**)
-4. [ ] **Customizer** — parameters from `// [min:step:max]` comments, sliders, JSON presets, incremental rendering
+4. [x] **Customizer** — parameters from `// [min:step:max]` comments, `.param` export (**17/17 — 100%**), sliders, `<stem>.json` presets (`-p`/`-P`), live debounced rendering, CST "Apply to file" (branch `m4-customizer`, pending review)
 5. [ ] **2D and advanced** — done in M3: extrude, offset, hull, minkowski, text, STL/OFF import, `.dat` surface. Missing: SVG/DXF/3MF/OBJ import, PNG surface, `linear_extrude` subdivision rule with non-uniform scale, "octa" sphere with `$fn > 12`
 6. [ ] **Compatibility** — MCAD, BOSL2, corpus of real models
 7. [ ] **AI** — Claude/Gemini panel with tool use
@@ -160,6 +161,16 @@ Principles:
 - 2026-11-01: **published on GitHub** with README, GPL-3.0-or-later license, CI (fmt, clippy,
   tests, compatibility suites on `windows-latest`). All repository content translated to
   English, app UI included.
+- 2026-11-01: **milestone 4 (Customizer) done on branch `m4-customizer` (pending review).**
+  Finished the repository-wide English translation (`ddff869`), added surgical rowan CST assignment
+  literal rewriting (`scad_syntax::replace_assignment_value` / `replace_assignment_values`),
+  created `scad-customizer` (OpenSCAD-compatible parameter extraction, range-adjustment warnings,
+  `.param` JSON export, and `<stem>.json` presets), added `-o x.param` and `-p`/`-P` to `scadr`,
+  added `compat-runner --params` + `tests/compat/params/` (**17/17 — 100%**), and built the
+  desktop Customizer panel in `app` (tabs, sliders, spinboxes, dropdowns, checkboxes, text,
+  1..=4D vectors, presets Save/Save as/Rename/Delete, 100 ms live debounce, reload preservation,
+  per-file `eframe` persistence, "Apply to file", and configurable Right/Left panel side in
+  Settings). Detailed review report in `docs/m4-customizer-review.md`.
 
 ## Notes for the next milestones
 
@@ -186,6 +197,7 @@ cargo run -p app -- examples\supporto.stl          # open a file
 cargo run -p app -- --render-png in.stl out\x.png 1280x800   # snapshot without a window
 cargo test --workspace
 cargo build -p scadr; cargo run -p compat-runner                 # text suite vs OpenSCAD
+cargo run -p compat-runner -- --params                           # Customizer .param suite vs OpenSCAD
 cargo run -p compat-runner -- --geometry -v                      # geometry suite vs OpenSCAD
 .\target\debug\scadr.exe -o out\x.stl in.scad          # STL export (ASCII like OpenSCAD; binstl for binary)
 cargo clippy --workspace --all-targets -- -D warnings
