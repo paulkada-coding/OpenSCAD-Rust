@@ -246,6 +246,7 @@ unsafe extern "C" {
         n_clip: usize,
         op: c_int,
         fill: c_int,
+        preserve_collinear: c_int,
     ) -> *mut MshimPaths64;
     pub fn mshim_clip_offset(
         pts: *const i64,

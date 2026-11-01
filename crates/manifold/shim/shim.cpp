@@ -559,10 +559,12 @@ MshimPaths64* mshim_clip_boolean(const int64_t* subj_pts,
                                  const size_t* subj_lens, size_t n_subj,
                                  const int64_t* clip_pts,
                                  const size_t* clip_lens, size_t n_clip,
-                                 int op, int fill) noexcept {
+                                 int op, int fill,
+                                 int preserve_collinear) noexcept {
   MshimPaths64* out = nullptr;
   int ok = Try([&] {
     Clipper2Lib::Clipper64 clipper;
+    clipper.PreserveCollinear(preserve_collinear != 0);
     clipper.AddSubject(ToPaths64(subj_pts, subj_lens, n_subj));
     if (n_clip > 0) clipper.AddClip(ToPaths64(clip_pts, clip_lens, n_clip));
     Clipper2Lib::Paths64 result;

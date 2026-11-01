@@ -98,6 +98,18 @@ fn take(raw: *mut ffi::MshimPaths64, operation: &str) -> Vec<Path64> {
 /// Boolean of `subject` and `clip` regions, both read with `fill`.
 /// Results: outlines counter-clockwise, holes clockwise.
 pub fn boolean(subject: &[Path64], clip: &[Path64], op: ClipOp, fill: FillRule) -> Vec<Path64> {
+    boolean_ex(subject, clip, op, fill, true)
+}
+
+/// Like [`boolean`]; with `preserve_collinear` unset, vertices lying on a
+/// straight edge are removed from the result.
+pub fn boolean_ex(
+    subject: &[Path64],
+    clip: &[Path64],
+    op: ClipOp,
+    fill: FillRule,
+    preserve_collinear: bool,
+) -> Vec<Path64> {
     let (sp, sl) = flatten(subject);
     let (cp, cl) = flatten(clip);
     // SAFETY: each point buffer holds 2 * sum(lens) coordinates matching
@@ -112,6 +124,7 @@ pub fn boolean(subject: &[Path64], clip: &[Path64], op: ClipOp, fill: FillRule) 
             cl.len(),
             op.code(),
             fill_code(fill),
+            c_int::from(preserve_collinear),
         )
     };
     take(raw, "clipper boolean")

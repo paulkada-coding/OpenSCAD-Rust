@@ -667,6 +667,12 @@ fn integer_clipper() {
     );
     assert_eq!(frame.len(), 2);
     assert_eq!(area(&frame), 64.0);
+    // Collinear vertices: kept by default, removed on request.
+    let with_mid = [vec![[0, 0], [5, 0], [10, 0], [10, 10], [0, 10]]];
+    let kept = clipper::boolean(&with_mid, &[], ClipOp::Union, FillRule::NonZero);
+    assert_eq!(kept[0].len(), 5);
+    let dropped = clipper::boolean_ex(&with_mid, &[], ClipOp::Union, FillRule::NonZero, false);
+    assert_eq!(dropped[0].len(), 4);
 
     let grown = clipper::offset(&a, 2.0, Join::Miter, 2.0, 0.0);
     assert_eq!(area(&grown), 196.0);
