@@ -31,6 +31,7 @@ Repository: https://github.com/capriatiivan-prog/OpenSCAD-Rust (branch `main`).
 | 2026-10-31 | **Constant** frame rate by default (Settings → Display), "on demand" optional | With G-Sync/VRR, irregular frames change the monitor's refresh rate and the user's OLED panels flicker |
 | 2026-11-01 | License **GPL-3.0-or-later** (user's choice); README, GitHub Actions CI (Windows) | Publishing on GitHub; bundled parts (Manifold Apache-2.0, Clipper2 BSL-1.0, OFL fonts) are compatible |
 | 2026-11-01 | All repository content in English, including the app UI | Public repository; an Italian UI translation can come later through i18n |
+| 2026-11-01 | UI stays **egui/eframe + wgpu** (no Tauri); project prepared for **WebAssembly**: shared `viewer` crate + `web-viewer` (wasm, JS API) | egui/wgpu already run on Windows, macOS, Linux and the web (verified on Linux and in Chromium); Tauri would mean rewriting the UI in HTML/JS and a webview dependency for no new platform. The user wants the 3D render in a future web app |
 | 2026-11-01 | Model → code picking with a **CPU raycast** (not a GPU ID buffer); selection drawn in **blue** | Raycast: simple, testable without a GPU, reusable by direct modelling and the AI, < 1 ms on the user's models. Blue: the model is already OpenSCAD yellow, back faces green, `#` red |
 
 ## Stack
@@ -64,7 +65,9 @@ crates/
   geometry/        indexed f64 mesh, Aabb, volume/area, sharp edges, CSG tree (`Node` with `source` + `root_call`) and `.csg` export
   mesher/          CSG tree → meshes with Manifold: OpenSCAD-identical tessellation, 2D on a 2^-27 grid, extrusions, text, import, triangle→source provenance with the chain of calls
   mesh-io/         STL (binary/ASCII, OpenSCAD format) and OFF, reading and writing; later 3MF/OBJ, SVG/DXF import
-  render/          offscreen wgpu Scene (MSAA 4x, sRGB), Z-up OrbitCamera, picking rays, selection highlight, headless rendering → PNG
+  render/          offscreen wgpu Scene (MSAA 4x, sRGB encode pass), Z-up OrbitCamera, picking rays, selection highlight, headless rendering → PNG (native only); builds for wasm32 (WebGPU/WebGL 2)
+  viewer/          egui viewport widget (Scene + camera + mouse + picking rays), shared by `app` and `web-viewer`
+  web-viewer/      wasm32 cdylib: the viewer in a web page (`eframe` web, WebGPU → WebGL 2), JS API `WebViewer` (`load_stl`, `set_mesh`); `www/index.html`; empty on native
   ai/              (to do) Claude/Gemini providers, tools
   app/             egui UI: menu, model panel, click on the model → code (selection), Customizer ("Parameters") panel + presets, viewport, status bar, persistent settings
 tools/
@@ -189,6 +192,19 @@ Principles:
   - parser: a leading UTF-8 byte order mark is accepted like OpenSCAD (new case
     `lex_utf8_bom`, **218/218**).
 
+- 2026-11-01: **project prepared for WebAssembly** (same branch), on the user's request (future web
+  app with the 3D render). The UI stays egui/wgpu: it is already multi-platform (no Tauri).
+  - New `viewer` crate (the viewport widget moved out of `app`) and `web-viewer` (wasm32: page,
+    JS API `WebViewer.start/load_stl/set_mesh/load_demo/destroy`, drag & drop, "Open STL…").
+  - `render`: the final sRGB encoding is now a separate pass, because WebGL 2 cannot create an
+    sRGB view of a plain texture; desktop PNG output verified identical byte for byte.
+    `headless` is native only.
+  - `geometry::Mesh::from_flat`; `manifold` build script stops with a clear message on wasm32;
+    `rust-toolchain.toml` adds the `wasm32-unknown-unknown` target; CI job `web` (Ubuntu):
+    clippy for wasm32 on the portable crates + web viewer build.
+  - Verified: web viewer in Chromium with WebGL 2 (SwiftShader) and WebGPU (demo STL, JS
+    `set_mesh`); interpreter in wasm under Node (`porta_carte.scad`, same ECHOs). Not yet in
+    the browser: `.scad` meshing (Manifold port, plan in `docs/web.md`).
 - 2026-11-01: **click on the model → code (next-steps §3.1) on branch `claude/vibrant-rubin-sc5ljg`**
   (developed in a Linux cloud session).
   - `mesher`: `RenderOutput::source_paths`, the chain of nested instantiations behind every
@@ -223,6 +239,9 @@ Principles:
 - The workspace also builds and tests on Linux (cloud sessions): `apt-get install
   mesa-vulkan-drivers` gives a software Vulkan adapter (lavapipe) for the GPU tests, and the app
   runs under `Xvfb` (needs `libxkbcommon-x11-0`; `xdotool` drives it).
+- WebAssembly rules and plan in `docs/web.md`: no threads, blocking waits, `Instant` or
+  `SystemTime::now()` in the portable crates; file access must fail gracefully; rendering must
+  respect WebGL 2 limits. CI checks them with clippy for wasm32.
 - The mesher is not incremental: every reload recomputes everything (40–80 ms on the user's
   models). M4 measured 39–85 ms per change (315 ms for the `taratura` mode): a per-subtree cache is not needed yet.
 - `-D` overrides are the basis for Customizer values (M4): same semantics as OpenSCAD (an
@@ -244,6 +263,8 @@ cargo run -p compat-runner -- --geometry -v                      # geometry suit
 .\target\debug\scadr.exe -o out\x.stl in.scad          # STL export (ASCII like OpenSCAD; binstl for binary)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
+cargo build --release --target wasm32-unknown-unknown -p web-viewer   # web viewer (see crates/web-viewer/README.md)
+wasm-bindgen --target web --out-dir crates/web-viewer/www/pkg target/wasm32-unknown-unknown/release/web_viewer.wasm
 & 'C:\Program Files\OpenSCAD (Nightly)\openscad.exe' --backend=manifold -o out.stl in.scad  # oracle
 ```
 

@@ -1,0 +1,27 @@
+[package]
+name = "web-viewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The 3D viewer in a web page (WebAssembly + WebGPU/WebGL 2), with a JavaScript API"
+
+[lib]
+# cdylib: the .wasm module loaded by the page; rlib: tests and reuse.
+crate-type = ["cdylib", "rlib"]
+
+# The crate is empty on native targets, so `cargo build --workspace` keeps
+# working everywhere; build it with `--target wasm32-unknown-unknown`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "wgpu"] }
+geometry = { version = "0.1.0", path = "../geometry" }
+log = "0.4.35"
+mesh-io = { version = "0.1.0", path = "../mesh-io" }
+rfd = "0.17.2"
+viewer = { version = "0.1.0", path = "../viewer" }
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+web-sys = { version = "0.3.107", features = ["HtmlCanvasElement"] }
+
+[lints]
+workspace = true

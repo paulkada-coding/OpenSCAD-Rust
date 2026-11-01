@@ -203,6 +203,10 @@ previous line. They must work perfectly.
   use them, compare text and geometry with OpenSCAD. Measure interpreter performance
   on BOSL2 (much heavier than the user's files); if needed, profile before optimizing.
 
+### 3.5b WebAssembly
+- The 3D viewer runs in the browser (`crates/web-viewer`); the next steps for `.scad` files in
+  the browser (Manifold port first) are in `docs/web.md`.
+
 ### 3.6 Distribution
 - Release build with icon, `windows_subsystem` (already set in release), installer (e.g.
   `cargo-packager`), final product name (the user's decision).

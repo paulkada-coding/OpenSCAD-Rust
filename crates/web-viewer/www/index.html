@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenSCAD Rust viewer</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; height: 100%; background: #121417; color: #ccc; font-family: sans-serif; }
+    /* The viewer fills its canvas; size the canvas with CSS like any element. */
+    #viewer { display: block; width: 100%; height: 100%; }
+    #message { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+  <canvas id="viewer"></canvas>
+  <div id="message">Loading…</div>
+  <script type="module">
+    // Built by `wasm-bindgen --target web --out-dir www/pkg …` (see README.md).
+    import init, { WebViewer } from "./pkg/web_viewer.js";
+
+    const message = document.getElementById("message");
+    try {
+      await init();
+      const viewer = new WebViewer();
+      // true: show the built-in menu bar (open STL, view options).
+      await viewer.start(document.getElementById("viewer"), true);
+      message.remove();
+      viewer.load_demo();
+      // Exposed for experiments from the browser console, e.g.
+      // viewer.set_mesh("triangle", [0, 0, 0, 30, 0, 0, 0, 30, 0], [0, 1, 2]);
+      window.viewer = viewer;
+    } catch (err) {
+      message.textContent = `The viewer could not start: ${err}`;
+      console.error(err);
+    }
+  </script>
+</body>
+</html>

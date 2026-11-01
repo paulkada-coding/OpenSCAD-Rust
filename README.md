@@ -56,6 +56,11 @@ almost all builtin functions, `echo`/`assert`, `text()` with bundled fonts,
 
 **Command line.** `scadr` accepts the same main options as `openscad`.
 
+**Web.** The 3D viewer also runs in a web page (WebAssembly, WebGPU or WebGL 2), with a
+JavaScript API to show STL files or meshes: see [crates/web-viewer](crates/web-viewer/README.md).
+The interpreter already builds for WebAssembly; meshing `.scad` files in the browser needs the
+Manifold kernel ported first ([docs/web.md](docs/web.md)).
+
 ### Measured compatibility
 
 | Suite | Cases | Result |
@@ -145,6 +150,8 @@ crates/
   mesher/          CSG tree → meshes, OpenSCAD-identical tessellation
   mesh-io/         STL/OFF reading and writing
   render/          wgpu rendering (also windowless, to PNG)
+  viewer/          interactive 3D viewport widget, shared by desktop and web
+  web-viewer/      the viewer in a web page (WebAssembly) with a JavaScript API
   scadr/           command-line executable
   app/             egui user interface
 tools/
@@ -159,6 +166,7 @@ Developer documentation:
 - [docs/next-steps.md](docs/next-steps.md): detailed next steps and project rules.
 - [docs/openscad-behavior.md](docs/openscad-behavior.md): OpenSCAD's behavior observed from the
   outside, used as the specification.
+- [docs/web.md](docs/web.md): WebAssembly status, rules and plan.
 
 ## Roadmap
 

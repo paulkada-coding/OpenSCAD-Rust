@@ -41,3 +41,25 @@ jobs:
       - name: OpenSCAD compatibility (geometry)
         continue-on-error: true
         run: cargo run -p compat-runner -- --geometry
+
+  # The 3D viewer and the engine crates that already build for WebAssembly
+  # (everything but the Manifold kernel and what depends on it: see docs/web.md).
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (wasm32)
+        run: >
+          cargo clippy --target wasm32-unknown-unknown
+          -p scad-syntax -p scad-eval -p scad-customizer -p scad-font
+          -p geometry -p mesh-io -p render -p viewer -p web-viewer
+          -- -D warnings
+
+      - name: Build the web viewer
+        run: cargo build --release --target wasm32-unknown-unknown -p web-viewer
