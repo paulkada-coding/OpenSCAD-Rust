@@ -30,7 +30,7 @@ impl Planar {
     /// Region enclosed by arbitrary contours under `fill` (snapped).
     pub fn from_contours(contours: &[Vec<DVec2>], fill: FillRule) -> Self {
         let paths: Vec<Path64> = contours.iter().map(|c| to_path(c)).collect();
-        from_paths(&clipper::boolean(&paths, &[], ClipOp::Union, fill))
+        from_paths(&boolean(&paths, &[], ClipOp::Union, fill))
     }
 
     pub fn to_paths(&self) -> Vec<Path64> {
@@ -118,6 +118,11 @@ pub fn signed_area(c: &[DVec2]) -> f64 {
     (0..n).map(|i| c[i].perp_dot(c[(i + 1) % n])).sum::<f64>() / 2.0
 }
 
+/// Clipper boolean as OpenSCAD runs it: collinear vertices are dropped.
+pub fn boolean(subject: &[Path64], clip: &[Path64], op: ClipOp, fill: FillRule) -> Vec<Path64> {
+    clipper::boolean_ex(subject, clip, op, fill, false)
+}
+
 pub fn snap(v: f64) -> i64 {
     (v * GRID).round() as i64
 }
@@ -143,18 +148,13 @@ pub fn from_paths(paths: &[Path64]) -> Planar {
 /// Union of regions.
 pub fn union(items: &[Planar]) -> Planar {
     let paths: Vec<Path64> = items.iter().flat_map(Planar::to_paths).collect();
-    from_paths(&clipper::boolean(
-        &paths,
-        &[],
-        ClipOp::Union,
-        FillRule::NonZero,
-    ))
+    from_paths(&boolean(&paths, &[], ClipOp::Union, FillRule::NonZero))
 }
 
 /// First region minus all the others.
 pub fn difference(first: &Planar, rest: &[Planar]) -> Planar {
     let clip: Vec<Path64> = rest.iter().flat_map(Planar::to_paths).collect();
-    from_paths(&clipper::boolean(
+    from_paths(&boolean(
         &first.to_paths(),
         &clip,
         ClipOp::Difference,
@@ -169,7 +169,7 @@ pub fn intersection(items: &[Planar]) -> Planar {
     };
     let mut acc = first.to_paths();
     for item in rest {
-        acc = clipper::boolean(
+        acc = boolean(
             &acc,
             &item.to_paths(),
             ClipOp::Intersection,

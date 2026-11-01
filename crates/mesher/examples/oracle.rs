@@ -153,6 +153,33 @@ fn describe(ours: &Mesh, theirs: &Mesh) -> String {
         .abs()
         .max_element()
         .max((ba.max - bb.max).abs().max_element());
+    if std::env::var_os("ORACLE_DUMP").is_some() {
+        let mut ours_only: Vec<DVec3> = ours
+            .vertices
+            .iter()
+            .filter(|p| !b.contains(&key(**p)))
+            .copied()
+            .collect();
+        let mut theirs_only: Vec<DVec3> = theirs
+            .vertices
+            .iter()
+            .filter(|p| !a.contains(&key(**p)))
+            .copied()
+            .collect();
+        let by_xyz = |p: &DVec3, q: &DVec3| {
+            p.x.total_cmp(&q.x)
+                .then(p.y.total_cmp(&q.y))
+                .then(p.z.total_cmp(&q.z))
+        };
+        ours_only.sort_by(by_xyz);
+        theirs_only.sort_by(by_xyz);
+        for p in ours_only.iter().take(12) {
+            println!("    ours only   {:?} {:?} {:?}", p.x, p.y, p.z);
+        }
+        for p in theirs_only.iter().take(12) {
+            println!("    theirs only {:?} {:?} {:?}", p.x, p.y, p.z);
+        }
+    }
     let verdict = if exact == a.len() && exact == b.len() {
         "EXACT"
     } else if a.len() == b.len() && worst < 1e-9 {

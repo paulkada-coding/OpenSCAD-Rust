@@ -88,6 +88,12 @@ fn default_slices(p: &LinearParams, max_r: f64) -> u32 {
     slices
 }
 
+/// Which diagonal splits the side quads: from the lower vertex of an edge
+/// to the upper vertex of the next one, or the other way.
+fn twist_split_low(twist: f64) -> bool {
+    twist >= 0.0
+}
+
 pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
     if !(p.height > 0.0 && p.height.is_finite()) || region.is_empty() {
         return None;
@@ -103,22 +109,32 @@ pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
         None => default_slices(p, max_r),
     };
     let scale = DVec2::new(p.scale.x.max(0.0), p.scale.y.max(0.0));
-    let (z0, dir) = match p.direction {
-        Some(v) if v.z > 0.0 => (0.0, v / v.z),
-        _ => (0.0, DVec3::Z),
+    // The extrusion runs `height` along the (unit) direction.
+    let dir = match p.direction {
+        // Already unit length (normalizing again would move it by an ulp).
+        Some(v) if v.z > 0.0 && v.is_finite() => v,
+        _ => DVec3::Z,
     };
-    let z_offset = if p.center { -p.height / 2.0 } else { z0 };
+    let base = if p.center {
+        -dir * (p.height / 2.0)
+    } else {
+        DVec3::ZERO
+    };
 
     let mut b = Builder::new();
     // Vertex ids per slice, contour, point.
     let mut rings: Vec<Vec<Vec<u32>>> = Vec::with_capacity(slices as usize + 1);
     for i in 0..=slices {
-        let t = f64::from(i) / f64::from(slices);
-        let angle = -p.twist * t;
-        let s = DVec2::ONE + (scale - DVec2::ONE) * t;
+        let (fi, fs) = (f64::from(i), f64::from(slices));
+        let angle = -p.twist * fi / fs;
+        let s = DVec2::ONE + (scale - DVec2::ONE) * fi / fs;
         let (c, sn) = (cos_degrees(angle), sin_degrees(angle));
-        let z = p.height * t;
-        let shift = dir * z + DVec3::new(0.0, 0.0, z_offset);
+        let along = p.height * f64::from(i) / f64::from(slices);
+        let shift = if dir == DVec3::Z {
+            DVec3::new(0.0, 0.0, along + base.z)
+        } else {
+            dir * along + base
+        };
         let slice = region
             .contours
             .iter()
@@ -141,7 +157,14 @@ pub fn linear_extrude(region: &Planar, p: &LinearParams) -> Option<PolySet> {
             let n = lo.len();
             for k in 0..n {
                 let k1 = (k + 1) % n;
-                b.face(&[lo[k], lo[k1], hi[k1], hi[k]]);
+                // Twisted quads are not planar: split them like OpenSCAD.
+                if twist_split_low(p.twist) {
+                    b.face(&[lo[k], lo[k1], hi[k1]]);
+                    b.face(&[lo[k], hi[k1], hi[k]]);
+                } else {
+                    b.face(&[lo[k], lo[k1], hi[k]]);
+                    b.face(&[lo[k1], hi[k1], hi[k]]);
+                }
             }
         }
     }

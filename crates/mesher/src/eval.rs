@@ -736,7 +736,7 @@ fn minkowski_2d(a: &Planar, b: &Planar) -> Planar {
         pb.iter()
             .map(|c| c.iter().map(|p| [p[0] + a0[0], p[1] + a0[1]]).collect()),
     );
-    planar::from_paths(&clipper::boolean(
+    planar::from_paths(&planar::boolean(
         &parts,
         &[],
         ClipOp::Union,
