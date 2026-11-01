@@ -17,10 +17,19 @@ pub enum FrameRate {
     OnDemand,
 }
 
+/// Which side of the window hosts the Customizer ("Parameters") panel.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PanelSide {
+    #[default]
+    Right,
+    Left,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub frame_rate: FrameRate,
+    pub customizer_side: PanelSide,
 }
 
 impl Settings {
@@ -61,4 +70,17 @@ pub fn settings_ui(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.add_space(8.0);
     let dt = ui.input(|i| i.stable_dt).max(1e-4);
     ui.label(format!("Frames per second: {:.0}", 1.0 / dt));
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(4.0);
+    ui.heading("Layout");
+    ui.add_space(4.0);
+    ui.label("Parameters panel position");
+    ui.radio_value(
+        &mut settings.customizer_side,
+        PanelSide::Right,
+        "Right (recommended)",
+    );
+    ui.radio_value(&mut settings.customizer_side, PanelSide::Left, "Left");
 }

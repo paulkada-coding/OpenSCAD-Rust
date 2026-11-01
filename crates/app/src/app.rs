@@ -14,7 +14,8 @@ use mesh_io::StlFormat;
 use mesher::{RenderOutput, Shape};
 use render::{LayerKind, LayerMesh, Projection, ViewPreset};
 
-use crate::settings::{self, FrameRate, Settings};
+use crate::customizer::{self, CustomizerEvent, CustomizerState, PersistedCustomizer};
+use crate::settings::{self, FrameRate, PanelSide, Settings};
 use crate::viewport::Viewport;
 use crate::worker::{ConsoleLine, JobResult, LineKind, Worker, modified_time};
 
@@ -102,6 +103,9 @@ pub struct ViewerApp {
     viewport: Viewport,
     worker: Worker,
     document: Option<Document>,
+    customizer: Option<CustomizerState>,
+    persisted_customizer: PersistedCustomizer,
+    show_customizer: bool,
     loading_stl: Option<PendingStl>,
     console: Vec<ConsoleLine>,
     show_console: bool,
@@ -127,6 +131,9 @@ impl ViewerApp {
             render_state,
             worker: Worker::spawn(cc.egui_ctx.clone()),
             document: None,
+            customizer: None,
+            persisted_customizer: PersistedCustomizer::load(cc.storage),
+            show_customizer: true,
             loading_stl: None,
             console: Vec::new(),
             show_console: true,
@@ -145,9 +152,16 @@ impl ViewerApp {
     // ------------------------------------------------------------ opening
 
     fn open(&mut self, path: PathBuf, ctx: &egui::Context) {
+        if let Some(prev) = &self.customizer {
+            prev.persist_into(&mut self.persisted_customizer);
+        }
         if has_extension(&path, "scad") {
             self.console.clear();
             self.document = Some(Document::new(path.clone(), DocumentKind::Scad));
+            self.customizer = Some(CustomizerState::load_for_file(
+                &path,
+                &self.persisted_customizer,
+            ));
             self.viewport.clear(&self.render_state.device);
             self.evaluate(&path);
         } else {
@@ -156,7 +170,11 @@ impl ViewerApp {
     }
 
     fn evaluate(&mut self, path: &Path) {
-        let generation = self.worker.submit(path.to_path_buf());
+        let defines = self
+            .customizer
+            .as_ref()
+            .map_or_else(Vec::new, CustomizerState::active_defines);
+        let generation = self.worker.submit(path.to_path_buf(), defines);
         if let Some(doc) = &mut self.document {
             doc.pending = Some(generation);
         }
@@ -169,7 +187,12 @@ impl ViewerApp {
         };
         let path = doc.path.clone();
         match doc.kind {
-            DocumentKind::Scad => self.evaluate(&path),
+            DocumentKind::Scad => {
+                if let Some(cust) = &mut self.customizer {
+                    cust.reload_from_disk();
+                }
+                self.evaluate(&path);
+            }
             DocumentKind::Stl => self.start_stl_loading(path, ctx),
         }
     }
@@ -212,6 +235,10 @@ impl ViewerApp {
                     .as_ref()
                     .is_some_and(|d| d.path == path && d.kind == DocumentKind::Stl);
                 if !reloading {
+                    if let Some(prev) = &self.customizer {
+                        prev.persist_into(&mut self.persisted_customizer);
+                    }
+                    self.customizer = None;
                     self.console.clear();
                     self.document = Some(Document::new(path.clone(), DocumentKind::Stl));
                 }
@@ -327,6 +354,8 @@ impl ViewerApp {
             .any(|(path, seen)| modified_time(path) != *seen);
         if changed {
             self.reload(ctx);
+        } else if let Some(cust) = &mut self.customizer {
+            cust.refresh_presets_if_changed();
         }
     }
 
@@ -486,9 +515,49 @@ impl ViewerApp {
                     self.viewport.set_style(style);
                 }
                 ui.separator();
+                ui.checkbox(&mut self.show_customizer, "Parameters");
                 ui.checkbox(&mut self.show_console, "Console");
             });
         });
+    }
+
+    fn customizer_panel(&mut self, ui: &mut egui::Ui) {
+        let Some(cust) = &mut self.customizer else {
+            return;
+        };
+        let event = cust.ui(ui);
+        self.handle_customizer_event(event);
+    }
+
+    fn handle_customizer_event(&mut self, event: CustomizerEvent) {
+        match event {
+            CustomizerEvent::None => {}
+            CustomizerEvent::Evaluate => {
+                if let Some(path) = self.document.as_ref().map(|d| d.path.clone()) {
+                    self.evaluate(&path);
+                }
+            }
+            CustomizerEvent::AppliedToFile { count, new_mtime } => {
+                if let Some(doc) = &mut self.document {
+                    for (path, seen) in &mut doc.dependencies {
+                        if *path == doc.path {
+                            *seen = new_mtime;
+                        }
+                    }
+                    self.status = Status::Info(format!(
+                        "Applied {count} parameter(s) to {}",
+                        file_name(&doc.path)
+                    ));
+                }
+            }
+            CustomizerEvent::Status { is_error, message } => {
+                self.status = if is_error {
+                    Status::Error(message)
+                } else {
+                    Status::Info(message)
+                };
+            }
+        }
     }
 
     fn model_panel(&self, ui: &mut egui::Ui) {
@@ -653,12 +722,30 @@ impl eframe::App for ViewerApp {
         self.handle_dropped_files(&ctx);
         self.handle_shortcuts(&ctx);
 
+        if self
+            .customizer
+            .as_mut()
+            .is_some_and(CustomizerState::take_due_evaluation)
+            && let Some(path) = self.document.as_ref().map(|d| d.path.clone())
+        {
+            self.evaluate(&path);
+        }
+
         // With vsync on, this presents exactly once per monitor refresh.
         if self.settings.frame_rate == FrameRate::Constant {
             ctx.request_repaint();
-        } else if self.document.is_some() {
-            // Keep watching files even when nothing else happens.
-            ctx.request_repaint_after(WATCH_INTERVAL);
+        } else {
+            let mut next_wake = self.document.is_some().then_some(WATCH_INTERVAL);
+            if let Some(delay) = self
+                .customizer
+                .as_ref()
+                .and_then(CustomizerState::pending_repaint_delay)
+            {
+                next_wake = Some(next_wake.map_or(delay, |w| w.min(delay)));
+            }
+            if let Some(delay) = next_wake {
+                ctx.request_repaint_after(delay);
+            }
         }
 
         let mut open = self.settings_open;
@@ -684,6 +771,17 @@ impl eframe::App for ViewerApp {
         egui::Panel::left("model")
             .default_size(260.0)
             .show(ui, |ui| self.model_panel(ui));
+        if self.show_customizer && self.customizer.is_some() {
+            let panel = match self.settings.customizer_side {
+                PanelSide::Right => egui::Panel::right("parameters"),
+                PanelSide::Left => egui::Panel::left("parameters"),
+            };
+            panel
+                .resizable(true)
+                .default_size(320.0)
+                .min_size(240.0)
+                .show(ui, |ui| self.customizer_panel(ui));
+        }
 
         let render_state = self.render_state.clone();
         egui::CentralPanel::default()
@@ -692,7 +790,11 @@ impl eframe::App for ViewerApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Some(cust) = &self.customizer {
+            cust.persist_into(&mut self.persisted_customizer);
+        }
         eframe::set_value(storage, settings::STORAGE_KEY, &self.settings);
+        eframe::set_value(storage, customizer::STORAGE_KEY, &self.persisted_customizer);
     }
 }
 
