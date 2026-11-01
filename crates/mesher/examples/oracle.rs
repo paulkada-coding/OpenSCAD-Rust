@@ -103,6 +103,29 @@ fn compare(dir: &Path, name: &str, code: &str) {
         .ok()
         .map(|s| parse_ascii_stl(&s));
 
+    if std::env::var_os("ORACLE_FIXTURE").is_some() {
+        // One line for crates/mesher/tests/fixtures/openscad.txt.
+        let fields = match &theirs {
+            Some(m) => {
+                let b = m.bounds();
+                format!(
+                    "{}\t{:016x}\t{:?}\t{:?},{:?},{:?}\t{:?},{:?},{:?}",
+                    m.vertices.len(),
+                    vertex_hash(m),
+                    m.volume(),
+                    b.min.x,
+                    b.min.y,
+                    b.min.z,
+                    b.max.x,
+                    b.max.y,
+                    b.max.z
+                )
+            }
+            None => "empty".to_string(),
+        };
+        println!("{name}\t{fields}\t{code}");
+        return;
+    }
     let line = match (&ours, &theirs) {
         (None, None) => "both empty".to_string(),
         (Some(_), None) => "OpenSCAD empty, ours not".to_string(),
@@ -116,6 +139,22 @@ fn compare(dir: &Path, name: &str, code: &str) {
     for w in &warnings {
         println!("    ours > WARNING: {w}");
     }
+}
+
+/// FNV-1a 64 of the sorted, bit-exact vertex coordinates (same as the
+/// integration test).
+fn vertex_hash(m: &Mesh) -> u64 {
+    let mut keys: Vec<[u64; 3]> = m.vertices.iter().map(|&p| key(p)).collect();
+    keys.sort_unstable();
+    keys.dedup();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for k in keys.iter().flatten() {
+        for byte in k.to_le_bytes() {
+            h ^= u64::from(byte);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    h
 }
 
 fn key(p: DVec3) -> [u64; 3] {

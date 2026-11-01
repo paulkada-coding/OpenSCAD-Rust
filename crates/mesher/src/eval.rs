@@ -165,7 +165,7 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Kernel solid of a 3D geometry; `None` for empty or failed input.
-    pub fn to_solid(&mut self, g: Geom) -> Option<Manifold> {
+    pub fn kernel_solid(&mut self, g: Geom) -> Option<Manifold> {
         match g {
             Geom::Solid(m) => Some(m),
             Geom::Poly { ps, source } => {
@@ -216,7 +216,7 @@ impl<'a> Evaluator<'a> {
             NodeKind::Render { .. } => {
                 let children = self.eval_children(&node.children)?;
                 match self.union(children, src) {
-                    g @ Geom::Poly { .. } => match self.to_solid(g) {
+                    g @ Geom::Poly { .. } => match self.kernel_solid(g) {
                         Some(m) => Geom::Solid(m),
                         None => Geom::Empty,
                     },
@@ -280,7 +280,7 @@ impl<'a> Evaluator<'a> {
             NodeKind::Projection { cut, .. } => {
                 let children = self.eval_children(&node.children)?;
                 let g = self.union_dim(children, src, Some(3));
-                match self.to_solid(g) {
+                match self.kernel_solid(g) {
                     Some(m) => {
                         let cs = if *cut { m.slice(0.0) } else { m.project() };
                         planar_geom(Planar::from_contours(&cs.to_polygons(), FillRule::Positive))
@@ -488,7 +488,7 @@ impl<'a> Evaluator<'a> {
                 } else {
                     let solids: Vec<Manifold> = children
                         .into_iter()
-                        .filter_map(|g| self.to_solid(g))
+                        .filter_map(|g| self.kernel_solid(g))
                         .collect();
                     solid_geom(Manifold::batch_union(&solids))
                 }
@@ -511,11 +511,11 @@ impl<'a> Evaluator<'a> {
             planar_geom(planar::difference(&first, &items))
         } else {
             let mut iter = children.into_iter();
-            let Some(first) = iter.next().and_then(|g| self.to_solid(g)) else {
+            let Some(first) = iter.next().and_then(|g| self.kernel_solid(g)) else {
                 return Geom::Empty;
             };
             let mut solids = vec![first];
-            solids.extend(iter.filter_map(|g| self.to_solid(g)));
+            solids.extend(iter.filter_map(|g| self.kernel_solid(g)));
             solid_geom(Manifold::batch_boolean(&solids, OpType::Subtract))
         }
     }
@@ -535,7 +535,7 @@ impl<'a> Evaluator<'a> {
             _ => {
                 let solids: Vec<Manifold> = children
                     .into_iter()
-                    .filter_map(|g| self.to_solid(g))
+                    .filter_map(|g| self.kernel_solid(g))
                     .collect();
                 solid_geom(Manifold::batch_boolean(&solids, OpType::Intersect))
             }
@@ -597,7 +597,7 @@ impl<'a> Evaluator<'a> {
         }
         let solids: Vec<Manifold> = children
             .into_iter()
-            .filter_map(|g| self.to_solid(g))
+            .filter_map(|g| self.kernel_solid(g))
             .collect();
         let mut solids = solids.into_iter();
         let Some(mut acc) = solids.next() else {

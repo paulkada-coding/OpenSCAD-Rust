@@ -70,6 +70,7 @@ impl Planar {
         (min, max)
     }
 
+    #[cfg(test)]
     pub fn area(&self) -> f64 {
         self.contours.iter().map(|c| signed_area(c)).sum()
     }

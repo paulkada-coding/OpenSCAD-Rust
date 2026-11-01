@@ -325,7 +325,7 @@ pub fn rotate_extrude(region: &Planar, p: &RotateParams) -> Result<Option<PolySe
     let full = angle.abs() >= 360.0;
     let n = fragments(max_x, &p.tessellation);
     let steps = clamp_count((f64::from(n) * angle.abs() / 360.0).ceil()).max(1);
-    let start = if full { p.start } else { p.start };
+    let start = p.start;
 
     let mut b = Builder::new();
     let ring_count = if full { steps } else { steps + 1 };

@@ -4,6 +4,7 @@
 
 use geometry::Mesh;
 use geometry::glam::{DMat4, DVec2, DVec3};
+#[cfg(test)]
 use manifold::Manifold;
 
 use crate::tess;
@@ -47,6 +48,7 @@ impl PolySet {
     }
 
     /// Converts to a kernel solid, welding duplicated vertices when needed.
+    #[cfg(test)]
     pub fn to_manifold(&self) -> Result<Manifold, manifold::Error> {
         let mesh = self.triangulate();
         match Manifold::from_mesh(&mesh) {

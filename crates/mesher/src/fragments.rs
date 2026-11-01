@@ -11,7 +11,7 @@ const GRID_FINE: f64 = 1.0 / 1_048_576.0;
 /// formula in the OpenSCAD manual: `$fn` when positive (at least 3),
 /// otherwise `ceil(max(min(360 / $fa, r * 2 * PI / $fs), 5))`.
 pub fn fragments(r: f64, seg: &Segments) -> u32 {
-    if !(r >= GRID_FINE) || !r.is_finite() {
+    if r.is_nan() || r < GRID_FINE || !r.is_finite() {
         return 3;
     }
     if seg.fn_ > 0.0 {
