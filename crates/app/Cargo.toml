@@ -19,6 +19,7 @@ scad-customizer = { version = "0.1.0", path = "../scad-customizer" }
 scad-eval = { version = "0.1.0", path = "../scad-eval" }
 scad-syntax = { version = "0.1.0", path = "../scad-syntax" }
 serde = { version = "1.0.229", features = ["derive"] }
+viewer = { version = "0.1.0", path = "../viewer" }
 
 [lints]
 workspace = true

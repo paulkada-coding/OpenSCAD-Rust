@@ -1,11 +1,17 @@
-//! 3D viewport widget: shows the GPU-rendered scene and turns mouse input
-//! into camera movements.
+//! Interactive 3D viewport for egui: shows the GPU-rendered [`Scene`] and
+//! turns mouse input into camera movements and picking rays.
+//!
+//! It depends only on `egui` and `egui-wgpu`, not on a windowing system, so
+//! the same widget runs in the desktop app (`eframe` native) and in a web
+//! page (`eframe` on WebAssembly, see the `web-viewer` crate).
 
-use eframe::egui::{self, PointerButton, Rect, Sense, pos2};
-use eframe::egui_wgpu::{self, wgpu};
+use egui::{PointerButton, Rect, Sense, pos2};
+use egui_wgpu::wgpu;
 use geometry::Mesh;
 use geometry::glam::DVec3;
 use render::{LayerMesh, OrbitCamera, Projection, Scene, SceneStyle, ViewPreset};
+
+pub use render;
 
 const ORBIT_SPEED: f32 = 0.008; // radians per point
 const ZOOM_SPEED: f32 = 0.0015; // per scrolled point

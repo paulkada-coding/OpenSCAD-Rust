@@ -1,0 +1,16 @@
+[package]
+name = "viewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Interactive 3D viewport widget for egui (desktop and web)"
+
+[dependencies]
+egui = "0.37.0"
+egui-wgpu = "0.37.0"
+geometry = { version = "0.1.0", path = "../geometry" }
+render = { version = "0.1.0", path = "../render" }
+
+[lints]
+workspace = true

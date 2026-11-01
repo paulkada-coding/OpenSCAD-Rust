@@ -17,8 +17,8 @@ use render::{LayerKind, LayerMesh, Projection, ViewPreset};
 use crate::customizer::{self, CustomizerEvent, CustomizerState, PersistedCustomizer};
 use crate::selection::{self, Provenance, Selection, SelectionEvent};
 use crate::settings::{self, FrameRate, PanelSide, Settings};
-use crate::viewport::{PickRay, Viewport};
 use crate::worker::{ConsoleLine, JobResult, LineKind, Worker, modified_time};
+use viewer::{PickRay, Viewport};
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 const EXPORT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::E);
