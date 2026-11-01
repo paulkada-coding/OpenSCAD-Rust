@@ -110,6 +110,12 @@ pub(crate) fn collect_warnings(tokens: &[Token<'_>]) -> Vec<SyntaxWarning> {
     warnings
 }
 
+/// Decodes an OpenSCAD string literal (`"..."`), matching the lexer's escape
+/// rules (`\n`, `\t`, `\r`, `\\`, `\"`, `\xNN`, `\uNNNN`, `\UNNNNNN`, NUL→space).
+pub fn unescape_string_literal(quoted: &str) -> String {
+    decode_string_literal(quoted, 0, |_| {})
+}
+
 /// Decodes an OpenSCAD string literal (`"..."`), invoking `on_bad_escape` for
 /// up to [`MAX_ESCAPE_WARNINGS_PER_STRING`] invalid escapes.
 pub(crate) fn decode_string_literal(

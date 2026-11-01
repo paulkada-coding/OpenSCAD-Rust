@@ -5,14 +5,17 @@
 //! evaluator works on the owned [`ast`], produced by [`Parse::tree`].
 
 pub mod ast;
+pub mod edit;
 pub mod lexer;
 mod line_index;
 mod lower;
 mod parser;
 mod syntax_kind;
 
-pub use lexer::{SyntaxWarning, SyntaxWarningKind};
+pub use edit::{EditError, replace_assignment_value, replace_assignment_values};
+pub use lexer::{SyntaxWarning, SyntaxWarningKind, unescape_string_literal};
 pub use line_index::LineIndex;
+pub use lower::parse_number_literal;
 pub use parser::{SyntaxError, UnterminatedKind};
 pub use rowan::{TextRange, TextSize};
 pub use syntax_kind::{ScadLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
