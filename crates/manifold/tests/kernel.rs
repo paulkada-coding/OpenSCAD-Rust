@@ -586,6 +586,104 @@ fn revolutions() {
     assert!(revolve(&CrossSection::empty(), n, 360.0).is_empty());
 }
 
+// ----- Triangulation and provenance -----
+
+#[test]
+fn triangulation() {
+    // Square with a square hole: 8 triangles covering area 64.
+    let outer = square(0.0, 0.0, 10.0, 10.0);
+    let hole: Vec<DVec2> = square(2.0, 2.0, 8.0, 8.0).into_iter().rev().collect();
+    let contours = [outer, hole];
+    let all: Vec<DVec2> = contours.iter().flatten().copied().collect();
+    let tris = manifold::triangulate(&contours, -1.0);
+    assert_eq!(tris.len(), 8);
+    let area: f64 = tris
+        .iter()
+        .map(|t| (all[t[1]] - all[t[0]]).perp_dot(all[t[2]] - all[t[0]]) / 2.0)
+        .sum();
+    assert_close(area, 64.0, EPS);
+    // Every triangle is counter-clockwise.
+    for t in &tris {
+        assert!((all[t[1]] - all[t[0]]).perp_dot(all[t[2]] - all[t[0]]) > 0.0);
+    }
+    assert!(manifold::triangulate::<Vec<DVec2>>(&[], -1.0).is_empty());
+}
+
+#[test]
+fn original_ids_survive_booleans() {
+    let a = unit_cube().as_original();
+    let b = Manifold::cube(DVec3::ONE, false)
+        .translate(DVec3::new(0.5, 0.5, 0.5))
+        .as_original();
+    let (ida, idb) = (a.original_id(), b.original_id());
+    assert!(ida >= 0 && idb >= 0 && ida != idb);
+    let u = a.union(&b);
+    assert_eq!(u.original_id(), -1);
+    let (mesh, runs) = u.to_mesh_with_runs();
+    assert!(!runs.is_empty());
+    assert_eq!(runs.last().unwrap().triangles.end, mesh.triangles.len());
+    let ids: Vec<u32> = runs.iter().map(|r| r.original_id).collect();
+    assert!(ids.contains(&(ida as u32)) && ids.contains(&(idb as u32)));
+    // Runs tile the triangle list in order.
+    for pair in runs.windows(2) {
+        assert_eq!(pair[0].triangles.end, pair[1].triangles.start);
+    }
+}
+
+#[test]
+fn integer_clipper() {
+    use manifold::clipper::{self, ClipOp, Join};
+    let sq = |x0: i64, y0: i64, x1: i64, y1: i64| vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    let area = |paths: &[clipper::Path64]| -> f64 {
+        paths
+            .iter()
+            .map(|p| {
+                (0..p.len())
+                    .map(|i| {
+                        let (a, b) = (p[i], p[(i + 1) % p.len()]);
+                        (a[0] as f64) * (b[1] as f64) - (b[0] as f64) * (a[1] as f64)
+                    })
+                    .sum::<f64>()
+                    / 2.0
+            })
+            .sum()
+    };
+    let a = [sq(0, 0, 10, 10)];
+    let b = [sq(5, 5, 15, 15)];
+    let u = clipper::boolean(&a, &b, ClipOp::Union, FillRule::NonZero);
+    assert_eq!(area(&u), 175.0);
+    let d = clipper::boolean(&a, &b, ClipOp::Difference, FillRule::NonZero);
+    assert_eq!(area(&d), 75.0);
+    let i = clipper::boolean(&a, &b, ClipOp::Intersection, FillRule::NonZero);
+    assert_eq!(area(&i), 25.0);
+    // Exact integer vertices survive.
+    assert!(i[0].contains(&[5, 5]) && i[0].contains(&[10, 10]));
+    // Nested same-orientation contours under EvenOdd: a frame with a hole.
+    let frame = clipper::boolean(
+        &[sq(0, 0, 10, 10), sq(2, 2, 8, 8)],
+        &[],
+        ClipOp::Union,
+        FillRule::EvenOdd,
+    );
+    assert_eq!(frame.len(), 2);
+    assert_eq!(area(&frame), 64.0);
+    // Collinear vertices: kept by default, removed on request.
+    let with_mid = [vec![[0, 0], [5, 0], [10, 0], [10, 10], [0, 10]]];
+    let kept = clipper::boolean(&with_mid, &[], ClipOp::Union, FillRule::NonZero);
+    assert_eq!(kept[0].len(), 5);
+    let dropped = clipper::boolean_ex(&with_mid, &[], ClipOp::Union, FillRule::NonZero, false);
+    assert_eq!(dropped[0].len(), 4);
+
+    let grown = clipper::offset(&a, 2.0, Join::Miter, 2.0, 0.0);
+    assert_eq!(area(&grown), 196.0);
+    let round = clipper::offset(&[sq(0, 0, 1000, 1000)], 100.0, Join::Round, 2.0, 1.0);
+    assert!(area(&round) > 1_400_000.0 && area(&round) < 1_400_000.0 + 31_416.0);
+
+    // Swept along the boundary: a 12x12 ring with an 8x8 hole.
+    let m = clipper::minkowski_sum(&sq(-1, -1, 1, 1), &sq(0, 0, 10, 10));
+    assert_eq!(area(&m), 144.0 - 64.0);
+}
+
 // ----- Ownership and threads -----
 
 #[test]

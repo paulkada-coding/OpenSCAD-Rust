@@ -405,10 +405,26 @@ pub fn measure_text(params: &TextParams<'_>) -> TextMetrics {
 ///
 /// Curves are subdivided recursively until chord deviation is at most `max_chord_error`.
 pub fn shape_contours(params: &TextParams<'_>, max_chord_error: f64) -> Vec<Vec<[f64; 2]>> {
+    contours_with(params, Flatten::Tolerance(max_chord_error.max(1e-4)))
+}
+
+/// Like [`shape_contours`], but every curve is split into `steps_per_curve`
+/// equal parameter steps (OpenSCAD's `text()` uses a fixed count per curve).
+pub fn shape_contours_steps(params: &TextParams<'_>, steps_per_curve: u32) -> Vec<Vec<[f64; 2]>> {
+    contours_with(params, Flatten::Steps(steps_per_curve.max(1)))
+}
+
+/// How [`FlattenPen`] approximates curves.
+#[derive(Clone, Copy)]
+enum Flatten {
+    Tolerance(f64),
+    Steps(u32),
+}
+
+fn contours_with(params: &TextParams<'_>, mode: Flatten) -> Vec<Vec<[f64; 2]>> {
     if params.text.is_empty() || params.size <= 0.0 {
         return Vec::new();
     }
-    let tol = max_chord_error.max(1e-4);
     let id = resolve_face(params.font);
     FONT_DB
         .with_face_data(id, |data, face_index| {
@@ -442,7 +458,7 @@ pub fn shape_contours(params: &TextParams<'_>, max_chord_error: f64) -> Vec<Vec<
                             pg.origin_26_6[1] * out_scale + off_y,
                         ],
                         64.0 * out_scale,
-                        tol,
+                        mode,
                     );
                     if glyph.draw(settings, &mut pen).is_ok() {
                         all_contours.extend(pen.finish());
@@ -683,6 +699,8 @@ struct FlattenPen {
     origin: [f64; 2],
     pixel_scale: f64,
     tol_sq: f64,
+    /// Fixed parameter steps per curve instead of the tolerance.
+    steps: Option<u32>,
     contours: Vec<Vec<[f64; 2]>>,
     current: Vec<[f64; 2]>,
     last: [f64; 2],
@@ -691,11 +709,16 @@ struct FlattenPen {
 impl FlattenPen {
     const MAX_DEPTH: u8 = 12;
 
-    fn new(origin: [f64; 2], pixel_scale: f64, tol: f64) -> Self {
+    fn new(origin: [f64; 2], pixel_scale: f64, mode: Flatten) -> Self {
+        let (tol_sq, steps) = match mode {
+            Flatten::Tolerance(tol) => (tol * tol, None),
+            Flatten::Steps(n) => (0.0, Some(n)),
+        };
         Self {
             origin,
             pixel_scale,
-            tol_sq: tol * tol,
+            tol_sq,
+            steps,
             contours: Vec::new(),
             current: Vec::new(),
             last: origin,
@@ -784,7 +807,19 @@ impl OutlinePen for FlattenPen {
         let p0 = self.last;
         let p1 = self.map_pt(cx0, cy0);
         let p2 = self.map_pt(x, y);
-        self.quad_rec(p0, p1, p2, 0);
+        if let Some(n) = self.steps {
+            for k in 1..=n {
+                let t = f64::from(k) / f64::from(n);
+                let u = 1.0 - t;
+                let (a, b, c) = (u * u, 2.0 * u * t, t * t);
+                self.current.push([
+                    a * p0[0] + b * p1[0] + c * p2[0],
+                    a * p0[1] + b * p1[1] + c * p2[1],
+                ]);
+            }
+        } else {
+            self.quad_rec(p0, p1, p2, 0);
+        }
         self.last = p2;
     }
 
@@ -793,7 +828,19 @@ impl OutlinePen for FlattenPen {
         let p1 = self.map_pt(cx0, cy0);
         let p2 = self.map_pt(cx1, cy1);
         let p3 = self.map_pt(x, y);
-        self.cubic_rec(p0, p1, p2, p3, 0);
+        if let Some(n) = self.steps {
+            for k in 1..=n {
+                let t = f64::from(k) / f64::from(n);
+                let u = 1.0 - t;
+                let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+                self.current.push([
+                    a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+                    a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
+                ]);
+            }
+        } else {
+            self.cubic_rec(p0, p1, p2, p3, 0);
+        }
         self.last = p3;
     }
 
@@ -836,5 +883,27 @@ mod tests {
         assert!((min_y - metrics.position[1]).abs() < 0.05);
         assert!(((max_x - min_x) - metrics.size[0]).abs() < 0.05);
         assert!(((max_y - min_y) - metrics.size[1]).abs() < 0.05);
+    }
+}
+
+#[cfg(test)]
+mod step_tests {
+    use super::*;
+
+    #[test]
+    fn fixed_steps_per_curve() {
+        // Liberation Sans "O": two contours of quadratic curves only, 19 in
+        // total, so each step count gives 19 * steps points.
+        let params = TextParams {
+            text: "O",
+            ..TextParams::default()
+        };
+        for steps in [2, 4] {
+            let n: usize = shape_contours_steps(&params, steps)
+                .iter()
+                .map(Vec::len)
+                .sum();
+            assert_eq!(n, 19 * steps as usize);
+        }
     }
 }
