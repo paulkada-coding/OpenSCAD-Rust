@@ -1,0 +1,16 @@
+[package]
+name = "scad-customizer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+geometry = { version = "0.1.0", path = "../geometry" }
+scad-syntax = { version = "0.1.0", path = "../scad-syntax" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.145"
+thiserror = "2.0.21"
+
+[lints]
+workspace = true

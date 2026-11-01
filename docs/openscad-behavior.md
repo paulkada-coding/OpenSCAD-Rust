@@ -1135,3 +1135,71 @@ OFF
   as the second operand makes the result deterministic.
 - Two cubes touching along an edge remain two shells with duplicate vertices (`bool_touching_edge`);
   two cubes sharing a face are merged (`bool_coplanar_union`, 20 triangles).
+
+---
+
+## 17. Customizer Parameters (`-o file.param`) and Presets (`-p` / `-P`)
+
+### 17.1 `.param` Export Pipeline and JSON Schema
+
+- `openscad -o out.param input.scad` evaluates `input.scad` (`$preview = true`, printing `ECHO:` /
+  `WARNING:` / `ERROR:` on stderr), extracts Customizer parameters (printing any range-adjustment
+  warnings on stderr), and writes compact single-line JSON **without a trailing newline**:
+  `{"parameters":[...],"title":"<input_file_stem>"}`.
+- When there are zero visible parameters, `"parameters"` is omitted: `{"title":"<input_file_stem>"}`.
+- Every JSON object has **alphabetically sorted keys**:
+  - Root: `parameters` (optional), `title`.
+  - Parameter: `caption`, `group`, `initial`, `max`, `maxLength`, `min`, `name`, `options`, `step`, `type`.
+  - Option: `name`, `value`.
+- Floating-point numbers follow `nlohmann::json` (`double`): shortest round-trip decimal digits,
+  fixed-point with `.0` for integer-valued numbers when `-4 <= exponent <= 14` (`0.0`, `-0.0`, `10.0`,
+  `0.0001`, `100000000000000.0`), and scientific notation with explicit sign and >= 2 exponent digits
+  otherwise (`9e-05`, `1.5e-05`, `1e+15`).
+
+### 17.2 Header Cut-Off, Groups, Captions, and Reassignments
+
+- **Cut-off**: extraction stops at the **first `{` character outside `//` and `/* … */` comments** in the
+  main file (even a `{` inside a string literal cuts off that assignment and everything after it;
+  statements without `{` such as `function`, `echo`, `cube(1);`, `include <…>`, `use <…>` do not stop
+  extraction, and variables from `include`d files are not extracted).
+- **Reassignments & `-D`**: top-level assignments are deduplicated by variable name in order of first
+  appearance, while the value, location, and comment annotations come from the **last** top-level
+  assignment. Command-line `-D name=expr` appends `name = expr;` at the end of the source (so in any file
+  containing `{`, `-D` moves `name`'s last assignment past `{`, removing it from Customizer parameters).
+- **Accepted literal expressions**:
+  - `"number"`: numeric literal optionally wrapped in `(...)` and unary `+`/`-` (`step` defaults to `1.0`),
+    or a vector literal `[e1, …]` of **1 to 4** signed numeric literals (no `step` unless ranged).
+  - `"boolean"`: `true` or `false` (`!false` is rejected).
+  - `"string"`: string literal `"…"` (decoded using OpenSCAD's lexer escape rules).
+- **Groups (`/* [Group] */`)**: default initial group is `"Parameters"`. Any single-line `/* … */` block
+  comment before `{` updates the active group: `/* [Name] */` sets `group = "Name"`; `/* [Hidden] */`
+  (case-sensitive) skips subsequent parameters; a single-line `/* … */` with no non-empty `[…]` sets an
+  empty group (omitting `"group"` from `.param`). Multi-line `/* …\n… */` comments do not change the group.
+- **Captions (`// …`)**: if the immediately preceding line (`line - 1`) starts with `//` and has non-empty
+  trimmed text, that text becomes `"caption"`.
+
+### 17.3 Trailing Constraint Comments (`// …` on the Assignment Line)
+
+- **Comma-separated `[a, b, …]`** (on scalar `number` or `string`): dropdown `"options"` (each item `val`
+  or `val:label`, surrounding quotes stripped on strings). If `initial` is not equal to any option's
+  `value`, `{name, value: initial}` is prepended (`name` uses `%g` formatting for numbers).
+- **Range / single-item `[…]`**:
+  - On scalar `number` or 1..=4 `vector`: `[max]` → `0.0..=max, step 1.0` (only `> max` triggers adjustment);
+    `[min:max]` → `step 1.0`; `[min:step:max]` → explicit `step`. When `initial` (or min/max element of a
+    vector) lies outside `[min, max]`, OpenSCAD expands the bound and prints:
+    `WARNING: Parameter "<name>": value <v> is below/above the declared minimum/maximum <b>, adjusting minimum/maximum value in file <f>, line <L>`.
+  - `[num:Label]` (where `Label` is non-numeric) on scalar `number` → single-item `options`.
+  - `[val]` or `[val:Label]` (where not both sides are numbers) on `string` → single-item `options`.
+- **Unbracketed `// N`**: sets `"step": N` on scalar `number`, or `"maxLength": N` on `string` when `N`
+  parses as an unsigned integer.
+
+### 17.4 Presets (`-p <file.json> -P <set_name>`)
+
+- Companion preset file (`<stem>.json`): `{"fileFormatVersion": "1", "parameterSets": {"<set>": {"<param>": "<str>"}}}`.
+- Preset loading runs **only when both `-p` and `-P` are supplied**:
+  - Missing file: `ERROR: Cannot open Parameter Set '<path>' for reading` on stderr, continues with defaults (exit 0).
+  - Invalid JSON: `ERROR: Cannot open Parameter Set '<path>': <err>` on stderr, continues with defaults (exit 0).
+  - Unknown `-P` set name, `[Hidden]` variables, and unknown parameter names are silently ignored.
+  - Validation per parameter: ranged numbers/vectors are **clamped** to `[min, max]`, enum numbers/strings
+    must match one of `options` (otherwise ignored), strings with `maxLength` are **truncated** to
+    `maxLength` characters, and vectors must match the default vector's length (1..=4).
