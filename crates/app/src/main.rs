@@ -12,9 +12,9 @@ use anyhow::{Context as _, anyhow, bail};
 use eframe::{egui, egui_wgpu};
 use render::{HeadlessGpu, OrbitCamera, Scene};
 
-const APP_TITLE: &str = "OpenSCAD Rust (prototipo)";
+const APP_TITLE: &str = "OpenSCAD Rust (prototype)";
 const USAGE: &str =
-    "uso: app [file.stl] | app --render-png <input.stl> <output.png> [LARGHEZZAxALTEZZA]";
+    "usage: app [file.scad|file.stl] | app --render-png <input.stl> <output.png> [WIDTHxHEIGHT]";
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(
@@ -79,7 +79,7 @@ fn render_png(
     (width, height): (u32, u32),
 ) -> anyhow::Result<()> {
     let mesh =
-        mesh_io::read_stl_file(input).with_context(|| format!("lettura di {}", input.display()))?;
+        mesh_io::read_stl_file(input).with_context(|| format!("reading {}", input.display()))?;
     let gpu = HeadlessGpu::new()?;
     log::info!(
         "GPU: {} · {:?}",
@@ -95,18 +95,18 @@ fn render_png(
     }
     render::render_image(&gpu, &mut scene, &camera, width, height)?
         .save_png(output)
-        .with_context(|| format!("scrittura di {}", output.display()))?;
-    log::info!("Salvato {}", output.display());
+        .with_context(|| format!("writing {}", output.display()))?;
+    log::info!("Saved {}", output.display());
     Ok(())
 }
 
 fn parse_size(text: &str) -> anyhow::Result<(u32, u32)> {
     let Some((w, h)) = text.split_once(['x', 'X']) else {
-        bail!("dimensione non valida {text:?}, atteso LARGHEZZAxALTEZZA");
+        bail!("invalid size {text:?}, expected WIDTHxHEIGHT");
     };
     let (w, h): (u32, u32) = (w.trim().parse()?, h.trim().parse()?);
     if w == 0 || h == 0 || w > 8192 || h > 8192 {
-        bail!("dimensione fuori intervallo: {w}x{h}");
+        bail!("size out of range: {w}x{h}");
     }
     Ok((w, h))
 }

@@ -119,7 +119,7 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
         Err(err) => {
             result.console.push(ConsoleLine {
                 kind: LineKind::Error,
-                text: format!("Impossibile leggere '{}': {err}", job.path.display()),
+                text: format!("Cannot read '{}': {err}", job.path.display()),
             });
             return result;
         }

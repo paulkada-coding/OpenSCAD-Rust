@@ -1,203 +1,204 @@
-# Prossimi passi — brief per chi continua il lavoro
+# Next steps — brief for whoever continues the work
 
-Documento autosufficiente: chi lo legge non ha bisogno di altro contesto oltre al repository.
-Aggiornato al 2026-11-01, dopo la milestone 3 (commit `8cde69a` su `main`).
+Self-contained document: the reader needs no context beyond the repository.
+Updated on 2026-11-01, after milestone 3 (commit `8cde69a` on `main`).
 
 ---
 
-## 0. Prima di iniziare
+## 0. Before you start
 
-### Da leggere
-1. `CLAUDE.md`: obiettivo del progetto, decisioni, stack, architettura, stato, comandi, ambiente.
-2. `docs/openscad-behavior.md`: comportamento osservato di OpenSCAD (messaggi, numeri, CSG,
-   export). È la "specifica" del progetto.
-3. `tests/compat/README.md` e `tests/compat/geometry/README.md`: come funzionano i banchi di prova.
-4. Il codice del crate su cui si lavora (ogni crate ha una descrizione in testa a `lib.rs`).
+### Required reading
+1. `CLAUDE.md`: project goal, decisions, stack, architecture, status, commands, environment.
+2. `docs/openscad-behavior.md`: observed behavior of OpenSCAD (messages, numbers, CSG,
+   export). It is the project's "specification".
+3. `tests/compat/README.md` and `tests/compat/geometry/README.md`: how the test benches work.
+4. The code of the crate you are working on (each crate has a description at the top of `lib.rs`).
 
-### Regole del progetto (non negoziabili)
-- **Clean-room.** Mai leggere né copiare il sorgente C++ di OpenSCAD (GPL). Il comportamento si
-  ricava solo eseguendo OpenSCAD Nightly (`C:\Program Files\OpenSCAD (Nightly)\openscad.exe`,
-  con `--backend=manifold`) e dal manuale pubblico. Le regole ricavate vanno documentate nei
-  commenti e, se generali, in `docs/openscad-behavior.md`.
-- **Nessun `unsafe`** fuori da `crates/manifold` (il workspace ha `unsafe_code = "deny"`).
-- **Mai modificare a mano** i file attesi in `tests/compat/expected` e `tests/compat/geometry/expected`.
-  Si rigenerano solo da OpenSCAD con `--update-expected`, e solo per casi nuovi.
-- **Il motore non dipende dalla UI**: `scad-*`, `geometry`, `mesher`, `mesh-io` non devono
-  dipendere da `app`, `render` o `egui`.
-- **Lingua**: codice, identificatori e commenti in inglese; documentazione e testi dell'interfaccia
-  in italiano; i messaggi che imitano OpenSCAD restano nel suo inglese esatto.
-- **Stile**: imitare il codice circostante (densità di commenti, nomi, idiomi). `cargo fmt --all`.
+### Project rules (non-negotiable)
+- **Clean-room.** Never read or copy the OpenSCAD C++ source (GPL). Behavior is derived only by
+  running OpenSCAD Nightly (`C:\Program Files\OpenSCAD (Nightly)\openscad.exe`,
+  with `--backend=manifold`) and from the public manual. The derived rules must be documented in
+  comments and, if general, in `docs/openscad-behavior.md`.
+- **No `unsafe`** outside `crates/manifold` (the workspace has `unsafe_code = "deny"`).
+- **Never edit by hand** the expected files in `tests/compat/expected` and `tests/compat/geometry/expected`.
+  They are regenerated only from OpenSCAD with `--update-expected`, and only for new cases.
+- **The engine does not depend on the UI**: `scad-*`, `geometry`, `mesher`, `mesh-io` must not
+  depend on `app`, `render` or `egui`.
+- **Language**: all repository content (code, comments, identifiers, documentation, UI strings,
+  commit messages) is in English; only the conversation with the user is in Italian. Messages that
+  imitate OpenSCAD keep its exact English.
+- **Style**: imitate the surrounding code (comment density, names, idioms). `cargo fmt --all`.
 
-### Verifica obbligatoria prima di ogni commit
+### Mandatory checks before every commit
 ```powershell
 cargo fmt --all --check
-cargo clippy --workspace --all-targets          # deve dare 0 warning
+cargo clippy --workspace --all-targets          # must report 0 warnings
 cargo test --workspace
 cargo build -p scadr
-cargo run -p compat-runner                      # suite testuale: deve restare 217/217
-cargo run -p compat-runner -- --geometry        # suite geometrica: oggi 39 exact, 60 equivalent, 1 failed
+cargo run -p compat-runner                      # text suite: must stay at 217/217
+cargo run -p compat-runner -- --geometry        # geometry suite: today 39 exact, 60 equivalent, 1 failed
 ```
-La suite geometrica non deve peggiorare: l'unico caso che oggi fallisce è `lex_scale_vector`
-(vedi §3.4). Un caso EXACT che diventa EQUIVALENT è una regressione da spiegare.
+The geometry suite must not get worse: the only case failing today is `lex_scale_vector`
+(see §3.4). An EXACT case that becomes EQUIVALENT is a regression that must be explained.
 
-### Note pratiche sull'ambiente (Windows 11, PowerShell 5.1)
-- Le shell aperte prima dell'installazione degli strumenti non vedono il PATH: iniziare i comandi
-  con `$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User');`
-- **Python non è installato**: per modificare file usare gli strumenti di editing, non script Python.
-- **Messaggi di commit su più righe**: PowerShell 5.1 rovina `-m` con virgolette; scrivere il
-  messaggio in un file e usare `git commit -F file`. Terminare ogni messaggio con
-  `Co-Authored-By: <modello> <indirizzo>` come nei commit esistenti.
-- `Set-Content`/`Out-File` di PowerShell 5.1 aggiungono il BOM UTF-8: per file letti da altri
-  programmi (RON, JSON) usare `[IO.File]::WriteAllText`.
-- File temporanei in `out\` (ignorata da git).
-- La GPU è una RTX 5080 (più una integrata AMD); l'app usa Vulkan sulla NVIDIA.
+### Practical notes on the environment (Windows 11, PowerShell 5.1)
+- Shells opened before the tools were installed do not see the PATH: start commands
+  with `$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User');`
+- **Python is not installed**: use the editing tools to modify files, not Python scripts.
+- **Multi-line commit messages**: PowerShell 5.1 mangles `-m` with quotes; write the
+  message to a file and use `git commit -F file`. End every message with
+  `Co-Authored-By: <model> <address>` as in the existing commits.
+- PowerShell 5.1 `Set-Content`/`Out-File` add a UTF-8 BOM: for files read by other
+  programs (RON, JSON) use `[IO.File]::WriteAllText`.
+- Temporary files go in `out\` (ignored by git).
+- The GPU is an RTX 5080 (plus an integrated AMD one); the app uses Vulkan on the NVIDIA.
 
-### Modo di consegna (ha funzionato bene finora)
-- Lavorare su un **branch** dedicato (es. `m4-customizer`), commit piccoli e atomici con
-  messaggi convenzionali (`feat(crate): …`, `fix(crate): …`).
-- A fine lavoro scrivere `docs/<branch>-review.md` con: riepilogo, risultati delle verifiche,
-  dettaglio commit per commit (cosa e perché), punti di attenzione per la revisione.
-- Non fare push e non unire in `main`: la revisione e il merge li fa Claude.
-- Aggiornare la sezione "Stato" di `CLAUDE.md` con una voce datata.
+### Delivery workflow (it has worked well so far)
+- Work on a dedicated **branch** (e.g. `m4-customizer`), with small, atomic commits and
+  conventional messages (`feat(crate): …`, `fix(crate): …`).
+- At the end, write `docs/<branch>-review.md` with: summary, verification results,
+  commit-by-commit detail (what and why), points of attention for the review.
+- Do not push and do not merge into `main`: Claude does the review and the merge.
+- Update the "Stato" section of `CLAUDE.md` with a dated entry.
 
 ---
 
-## 1. Stato attuale in breve
+## 1. Current status in brief
 
-| Area | Stato |
+| Area | Status |
 |---|---|
-| Linguaggio (parser + interprete) | Completo, 217/217 casi identici a OpenSCAD |
-| Geometria (`crates/mesher`) | 99/100 casi equivalenti a OpenSCAD, 39 vertice per vertice |
-| CLI `scadr` | `-o x.csg/.echo/.stl/.off`, `-D`, `-L`, `--enable`, `--export-format`; messaggi ed exit code di OpenSCAD |
-| App | Apre `.scad`/`.stl`, calcolo in background, console, ricarica automatica, `#`/`%` trasparenti, export STL, impostazioni persistenti (frequenza fotogrammi costante per OLED/G-Sync) |
-| Mancante | Customizer, editor integrato, clic modello→codice, import SVG/DXF/3MF/OBJ, export 3MF, compatibilità BOSL2 verificata, AI |
+| Language (parser + interpreter) | Complete, 217/217 cases identical to OpenSCAD |
+| Geometry (`crates/mesher`) | 99/100 cases equivalent to OpenSCAD, 39 vertex for vertex |
+| `scadr` CLI | `-o x.csg/.echo/.stl/.off`, `-D`, `-L`, `--enable`, `--export-format`; OpenSCAD messages and exit codes |
+| App | Opens `.scad`/`.stl`, background computation, console, automatic reload, transparent `#`/`%`, STL export, persistent settings (constant frame rate for OLED/G-Sync) |
+| Missing | Customizer, integrated editor, model→code click, SVG/DXF/3MF/OBJ import, 3MF export, verified BOSL2 compatibility, AI |
 
-Da far confermare all'utente (non verificabile in automatico su questa macchina, i clic simulati
-non arrivano alla finestra): interazione col mouse nel viewport, export dal menu, assenza di
-flicker sul suo monitor OLED con la frequenza costante.
-
----
-
-## 2. Milestone 4 — Customizer (priorità alta)
-
-Obiettivo per l'utente: aprire un `.scad`, vedere un pannello con i parametri del progetto
-(slider, caselle, menu a tendina), muoverli e vedere il modello aggiornarsi subito; salvare e
-richiamare combinazioni di valori (preset) compatibili con OpenSCAD.
-
-I file di prova reali sono `examples/porta_carte.scad` e `examples/separatore.scad`: usano tab
-(`/* [Pezzo] */`, `/* [Hidden] */`), menu a tendina (`// [stampa, scatola, …]`), intervalli
-(`// [30:1:270]`, `// [-0.25:0.05:0.6]`), booleani e stringhe, e commenti descrittivi sulla riga
-precedente. Devono funzionare perfettamente.
-
-### 2.1 Estrazione dei parametri (motore, nessuna UI)
-- Nuovo modulo (in `scad-syntax` o nuovo crate `scad-customizer`) che, dal **CST lossless**,
-  estrae i parametri del file principale: nome, valore di default, tipo, vincoli, descrizione,
-  tab (gruppo), riga/span dell'assegnazione.
-- Regole da ricavare **dall'oracolo**: OpenSCAD esporta i parametri con
-  `openscad -o out.param file.scad` (formato `param`, JSON). Va usato per stabilire con precisione:
-  - quali assegnazioni sono parametri (solo top-level, solo con valore letterale, fino a dove nel
-    file, effetto di `/* [Hidden] */` e dei tab);
-  - sintassi dei vincoli nel commento finale: `// [min:max]`, `// [min:step:max]`, `// [a, b, c]`,
-    `// [10:Piccolo, 20:Grande]` (valore:etichetta), lunghezza massima delle stringhe, step soltanto;
-  - descrizione dal commento della riga precedente;
-  - tipi: numero, booleano, stringa, vettore di numeri (fino a 4 elementi).
-- **Test di compatibilità**: aggiungere un corpus (es. `tests/compat/params/`) con casi `.scad`
-  e il `.param` atteso generato da OpenSCAD, e una modalità `--params` in `tools/compat-runner`
-  che confronta il JSON prodotto da noi (aggiungere a `scadr` l'export `-o x.param`).
-  Includere i due file dell'utente.
-
-### 2.2 Applicazione dei valori
-- Usare `EvalOptions::defines` (`crates/scad-eval/src/eval.rs`): ha già la semantica di `-D` di
-  OpenSCAD (sostituisce l'espressione nella posizione originale, senza warning di riassegnazione;
-  i `-D` non validi danno un warning). Serve una funzione che formatti un valore del Customizer
-  come letterale OpenSCAD (stringhe con escape, numeri con abbastanza cifre da non perdere
-  precisione, vettori, booleani).
-
-### 2.3 Preset compatibili con OpenSCAD
-- Formato JSON di OpenSCAD (`<nome_file>.json` accanto al `.scad`):
-  `{"parameterSets": {"nome": {"param": "valore"}}, "fileFormatVersion": "1"}` (verificare con
-  l'oracolo: `openscad -p preset.json -P nome -o x.csg file.scad`).
-- Leggere, scegliere, salvare, rinominare ed eliminare set, preservando i set e le chiavi esistenti.
-- `scadr` deve supportare `-p file.json -P nome` come OpenSCAD, con test di confronto.
-
-### 2.4 Interfaccia (crate `app`)
-- Pannello "Parametri" (a destra o al posto del pannello Modello quando il file ha parametri):
-  gruppi comprimibili per tab, un controllo per tipo:
-  - numero con intervallo → slider + campo numerico (rispettando step e decimali);
-  - numero senza intervallo → campo numerico con trascinamento;
-  - lista di valori → menu a tendina (con etichette se presenti);
-  - booleano → casella; stringa → campo di testo (con lunghezza massima); vettore → 2–4 campi.
-- Descrizione come tooltip o testo sotto il controllo; pulsante per tornare al default (per
-  parametro e globale); indicazione dei parametri modificati.
-- Aggiornamento dal vivo: ricalcolo con *debounce* (~100–150 ms) mentre si muove lo slider; il
-  worker (`crates/app/src/worker.rs`) annulla già il calcolo precedente. Mantenere ferma la
-  telecamera (già così) e mostrare il tempo di calcolo.
-- Preset: menu a tendina dei set + Salva / Salva come / Elimina.
-- Quando il file su disco cambia (ricarica automatica), conservare i valori modificati se il
-  parametro esiste ancora con lo stesso tipo.
-- Persistenza: ricordare per file gli ultimi valori usati (nello storage di eframe, come le
-  impostazioni in `crates/app/src/settings.rs`).
-
-### 2.5 Scrittura dei valori nel file (facoltativo ma importante per il futuro)
-- Comando "Applica al file": riscrive solo il letterale dell'assegnazione nel sorgente usando il
-  CST rowan (commenti e formattazione intatti). È la stessa operazione che serviranno
-  l'assistente AI e la modellazione diretta: farla come funzione riutilizzabile in `scad-syntax`
-  (es. `replace_assignment_value(text, name, new_literal) -> Result<String, _>`) con test.
-
-### 2.6 Prestazioni
-- Valutazione ~1 ms e geometria 40–80 ms sui modelli dell'utente (build di debug): basta per lo
-  slider dal vivo. Misurare anche in release. Se un modello reale supera ~200 ms, valutare una
-  cache dei risultati per sotto-albero CSG (hash del nodo → mesh) nel mesher; documentare la
-  scelta prima di implementarla.
-
-### 2.7 Criteri di accettazione M4
-- Corpus parametri: tutti i casi uguali a OpenSCAD; preset: `-p/-P` uguale a OpenSCAD.
-- Nei file dell'utente compaiono tutti i parametri con i tab giusti; cambiando `PEZZO`,
-  `N_FILE`, `LUNGHEZZA`, `SERRAGGIO`, `TESTO`, `FINESTRA` il modello si aggiorna e coincide con
-  l'export di OpenSCAD con gli stessi `-D` (verificabile con `compat-runner --geometry` e la
-  direttiva `// compat-args:`).
-- Nessuna regressione nelle verifiche del §0.
+To be confirmed by the user (cannot be verified automatically on this machine, simulated clicks
+do not reach the window): mouse interaction in the viewport, export from the menu, absence of
+flicker on their OLED monitor with the constant frame rate.
 
 ---
 
-## 3. Backlog dopo M4 (in ordine di valore per l'utente)
+## 2. Milestone 4 — Customizer (high priority)
 
-### 3.1 Clic sul modello → codice
-- Il mesher fornisce già `RenderOutput::triangle_sources` + `sources` (provenienza di ogni
-  triangolo, anche attraverso le booleane) e `Node::source`/`root_call`; l'interprete ha
+Goal for the user: open a `.scad`, see a panel with the project's parameters
+(sliders, checkboxes, drop-down menus), move them and see the model update immediately; save and
+recall combinations of values (presets) compatible with OpenSCAD.
+
+The real test files are `examples/porta_carte.scad` and `examples/separatore.scad`: they use tabs
+(`/* [Pezzo] */`, `/* [Hidden] */`), drop-down menus (`// [stampa, scatola, …]`), ranges
+(`// [30:1:270]`, `// [-0.25:0.05:0.6]`), booleans and strings, and descriptive comments on the
+previous line. They must work perfectly.
+
+### 2.1 Parameter extraction (engine, no UI)
+- New module (in `scad-syntax` or a new crate `scad-customizer`) that, from the **lossless CST**,
+  extracts the parameters of the main file: name, default value, type, constraints, description,
+  tab (group), line/span of the assignment.
+- Rules to be derived **from the oracle**: OpenSCAD exports parameters with
+  `openscad -o out.param file.scad` (`param` format, JSON). Use it to establish precisely:
+  - which assignments are parameters (top-level only, literal value only, up to where in the
+    file, effect of `/* [Hidden] */` and of tabs);
+  - syntax of the constraints in the trailing comment: `// [min:max]`, `// [min:step:max]`, `// [a, b, c]`,
+    `// [10:Piccolo, 20:Grande]` (value:label), maximum string length, step only;
+  - description from the comment on the previous line;
+  - types: number, boolean, string, vector of numbers (up to 4 elements).
+- **Compatibility tests**: add a corpus (e.g. `tests/compat/params/`) with `.scad` cases
+  and the expected `.param` generated by OpenSCAD, and a `--params` mode in `tools/compat-runner`
+  that compares the JSON we produce (add the `-o x.param` export to `scadr`).
+  Include the user's two files.
+
+### 2.2 Applying the values
+- Use `EvalOptions::defines` (`crates/scad-eval/src/eval.rs`): it already has the semantics of
+  OpenSCAD's `-D` (it replaces the expression at the original position, without a reassignment
+  warning; invalid `-D`s produce a warning). A function is needed that formats a Customizer value
+  as an OpenSCAD literal (escaped strings, numbers with enough digits not to lose
+  precision, vectors, booleans).
+
+### 2.3 OpenSCAD-compatible presets
+- OpenSCAD JSON format (`<file_name>.json` next to the `.scad`):
+  `{"parameterSets": {"name": {"param": "value"}}, "fileFormatVersion": "1"}` (verify with
+  the oracle: `openscad -p preset.json -P name -o x.csg file.scad`).
+- Read, select, save, rename and delete sets, preserving existing sets and keys.
+- `scadr` must support `-p file.json -P name` like OpenSCAD, with comparison tests.
+
+### 2.4 User interface (`app` crate)
+- "Parameters" panel (on the right, or in place of the Model panel when the file has parameters):
+  collapsible groups per tab, one control per type:
+  - number with a range → slider + numeric field (respecting step and decimals);
+  - number without a range → numeric field with dragging;
+  - list of values → drop-down menu (with labels if present);
+  - boolean → checkbox; string → text field (with maximum length); vector → 2–4 fields.
+- Description as a tooltip or as text below the control; button to reset to the default (per
+  parameter and global); indication of modified parameters.
+- Live update: recompute with *debounce* (~100–150 ms) while the slider moves; the
+  worker (`crates/app/src/worker.rs`) already cancels the previous computation. Keep the
+  camera still (already the case) and show the computation time.
+- Presets: drop-down menu of the sets + Save / Save as / Delete.
+- When the file on disk changes (automatic reload), keep the modified values if the
+  parameter still exists with the same type.
+- Persistence: remember the last used values per file (in eframe storage, like the
+  settings in `crates/app/src/settings.rs`).
+
+### 2.5 Writing values back to the file (optional but important for the future)
+- "Apply to file" command: rewrites only the assignment's literal in the source using the
+  rowan CST (comments and formatting intact). It is the same operation that the AI assistant
+  and direct modeling will need: implement it as a reusable function in `scad-syntax`
+  (e.g. `replace_assignment_value(text, name, new_literal) -> Result<String, _>`) with tests.
+
+### 2.6 Performance
+- Evaluation ~1 ms and geometry 40–80 ms on the user's models (debug build): enough for the
+  live slider. Measure in release too. If a real model exceeds ~200 ms, consider a
+  cache of results per CSG subtree (node hash → mesh) in the mesher; document the
+  choice before implementing it.
+
+### 2.7 M4 acceptance criteria
+- Parameter corpus: all cases identical to OpenSCAD; presets: `-p/-P` identical to OpenSCAD.
+- In the user's files all parameters appear with the right tabs; changing `PEZZO`,
+  `N_FILE`, `LUNGHEZZA`, `SERRAGGIO`, `TESTO`, `FINESTRA` updates the model and it matches
+  the OpenSCAD export with the same `-D`s (verifiable with `compat-runner --geometry` and the
+  `// compat-args:` directive).
+- No regressions in the checks of §0.
+
+---
+
+## 3. Backlog after M4 (in order of value for the user)
+
+### 3.1 Click on the model → code
+- The mesher already provides `RenderOutput::triangle_sources` + `sources` (provenance of every
+  triangle, including through booleans) and `Node::source`/`root_call`; the interpreter has
   `Evaluator::resolve_source`.
-- Serve il *picking*: un ID-buffer nel renderer (`crates/render/src/scene.rs`, seconda target
-  di colore con l'indice del triangolo) oppure un raycast su CPU. Al clic mostrare file, riga e
-  snippet; evidenziare in giallo tutti i triangoli dello stesso sorgente.
+- *Picking* is needed: an ID buffer in the renderer (`crates/render/src/scene.rs`, a second color
+  target with the triangle index) or a CPU raycast. On click, show file, line and
+  snippet; highlight in yellow all the triangles from the same source.
 
-### 3.2 Editor integrato
-- Pannello editor con evidenziazione della sintassi basata sul nostro lexer (`scad-syntax`),
-  numeri di riga, errori di parsing sottolineati, Ctrl+S che salva e fa ricalcolare.
-  Collegarlo al §3.1 (clic sul modello → cursore sulla riga). Il motore deve poter valutare il
-  testo del buffer non salvato (oggi il worker legge dal disco).
+### 3.2 Integrated editor
+- Editor panel with syntax highlighting based on our lexer (`scad-syntax`),
+  line numbers, underlined parse errors, Ctrl+S that saves and triggers a recompute.
+  Connect it to §3.1 (click on the model → cursor on the line). The engine must be able to evaluate the
+  text of the unsaved buffer (today the worker reads from disk).
 
-### 3.3 Export 3MF (e OBJ)
-- 3MF è il formato preferito dagli slicer moderni (unità in mm, più oggetti, colori). Scrittura
-  in `crates/mesh-io`, menu nell'app, `-o x.3mf` in `scadr` con i messaggi di OpenSCAD.
+### 3.3 3MF (and OBJ) export
+- 3MF is the format preferred by modern slicers (units in mm, multiple objects, colors). Writing
+  in `crates/mesh-io`, menu in the app, `-o x.3mf` in `scadr` with OpenSCAD's messages.
 
-### 3.4 Lacune note della geometria
-- `linear_extrude` con scala non uniforme senza twist: OpenSCAD suddivide i lati con una regola
-  non ancora trovata (caso `lex_scale_vector`, area +0,01%).
-- Sfera `style="octa"` con `$fn > 12`: punti interni sbagliati di ~0,05.
-- `linear_extrude(segments=…)` gestito solo in parte; `import(center/scale)` per i file 3D ignorati.
-- Import SVG / DXF (crate `usvg`, `dxf`), 3MF / OBJ; `surface()` da PNG.
-- Ogni correzione va accompagnata da casi in `tests/compat/geometry` (generati da OpenSCAD).
+### 3.4 Known geometry gaps
+- `linear_extrude` with non-uniform scale and no twist: OpenSCAD subdivides the sides with a rule
+  not yet found (case `lex_scale_vector`, area +0.01%).
+- Sphere `style="octa"` with `$fn > 12`: inner points off by ~0.05.
+- `linear_extrude(segments=…)` only partially handled; `import(center/scale)` ignored for 3D files.
+- SVG / DXF import (crates `usvg`, `dxf`), 3MF / OBJ; `surface()` from PNG.
+- Every fix must come with cases in `tests/compat/geometry` (generated by OpenSCAD).
 
-### 3.5 Milestone 6 — compatibilità con librerie reali
-- Installare BOSL2 e MCAD in una cartella di librerie, scrivere un corpus di esempi che le
-  usano, confrontare testo e geometria con OpenSCAD. Misurare le prestazioni dell'interprete
-  su BOSL2 (molto più pesante dei file dell'utente); se serve, profilare prima di ottimizzare.
+### 3.5 Milestone 6 — compatibility with real libraries
+- Install BOSL2 and MCAD in a library folder, write a corpus of examples that
+  use them, compare text and geometry with OpenSCAD. Measure interpreter performance
+  on BOSL2 (much heavier than the user's files); if needed, profile before optimizing.
 
-### 3.6 Distribuzione
-- Build release con icona, `windows_subsystem` (già impostato in release), installer (es.
-  `cargo-packager`), nome definitivo del prodotto (decisione dell'utente).
+### 3.6 Distribution
+- Release build with icon, `windows_subsystem` (already set in release), installer (e.g.
+  `cargo-packager`), final product name (the user's decision).
 
-### 3.7 Milestone 7–8 — AI e modellazione diretta
-- Rimandate. Le basi sono pronte: CST lossless per modifiche chirurgiche al codice, rendering
-  headless in PNG (`render::render_image`) come "occhi" del modello, provenienza
-  triangolo→sorgente. Richiedono decisioni di prodotto dell'utente prima di iniziare.
+### 3.7 Milestones 7–8 — AI and direct modeling
+- Postponed. The foundations are ready: lossless CST for surgical code edits, headless
+  PNG rendering (`render::render_image`) as the model's "eyes", triangle→source
+  provenance. They require product decisions from the user before starting.

@@ -37,13 +37,13 @@ impl ViewPreset {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Iso => "Isometrica",
-            Self::Top => "Sopra",
-            Self::Bottom => "Sotto",
-            Self::Front => "Fronte",
-            Self::Back => "Retro",
-            Self::Left => "Sinistra",
-            Self::Right => "Destra",
+            Self::Iso => "Isometric",
+            Self::Top => "Top",
+            Self::Bottom => "Bottom",
+            Self::Front => "Front",
+            Self::Back => "Back",
+            Self::Left => "Left",
+            Self::Right => "Right",
         }
     }
 

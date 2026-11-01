@@ -139,7 +139,7 @@ fn duplicated_vertices_need_merge() {
 
 #[test]
 fn error_messages_are_user_facing() {
-    assert!(Error::NotManifold.to_string().contains("non manifold"));
+    assert!(Error::NotManifold.to_string().contains("non-manifold"));
 }
 
 // ----- Booleans -----

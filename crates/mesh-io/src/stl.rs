@@ -15,13 +15,13 @@ const BINARY_TRIANGLE_LEN: usize = 50;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StlError {
-    #[error("errore di I/O: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] io::Error),
-    #[error("STL binario troncato: attesi {expected} byte, trovati {found}")]
+    #[error("truncated binary STL: expected {expected} bytes, found {found}")]
     Truncated { expected: usize, found: usize },
-    #[error("STL ASCII non valido alla riga {line}: {message}")]
+    #[error("invalid ASCII STL at line {line}: {message}")]
     InvalidAscii { line: usize, message: String },
-    #[error("il file non contiene triangoli")]
+    #[error("file contains no triangles")]
     Empty,
 }
 
@@ -120,11 +120,11 @@ fn read_ascii(bytes: &[u8]) -> Result<Vec<[DVec3; 3]>, StlError> {
                 let mut coord = || -> Result<f64, StlError> {
                     let token = tokens.next().ok_or_else(|| StlError::InvalidAscii {
                         line: line_no + 1,
-                        message: "coordinate mancante".into(),
+                        message: "missing coordinate".into(),
                     })?;
                     token.parse().map_err(|_| StlError::InvalidAscii {
                         line: line_no + 1,
-                        message: format!("numero non valido: {token:?}"),
+                        message: format!("invalid number: {token:?}"),
                     })
                 };
                 pending.push(DVec3::new(coord()?, coord()?, coord()?));
@@ -133,7 +133,7 @@ fn read_ascii(bytes: &[u8]) -> Result<Vec<[DVec3; 3]>, StlError> {
                 if pending.len() != 3 {
                     return Err(StlError::InvalidAscii {
                         line: line_no + 1,
-                        message: format!("attesi 3 vertici, trovati {}", pending.len()),
+                        message: format!("expected 3 vertices, found {}", pending.len()),
                     });
                 }
                 soup.push([pending[0], pending[1], pending[2]]);
@@ -171,7 +171,7 @@ fn write_binary(mesh: &Mesh, out: &mut impl Write) -> io::Result<()> {
     out.write_all(&header)?;
 
     let count = u32::try_from(mesh.triangle_count())
-        .map_err(|_| io::Error::other("troppi triangoli per il formato STL"))?;
+        .map_err(|_| io::Error::other("too many triangles for binary STL format"))?;
     out.write_all(&count.to_le_bytes())?;
 
     let mut record = [0u8; BINARY_TRIANGLE_LEN];

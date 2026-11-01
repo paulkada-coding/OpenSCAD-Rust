@@ -19,7 +19,7 @@ use mesher::{RenderOptions, Shape};
 use scad_eval::{EvalOptions, Evaluator, Level, Message, default_library_paths};
 use scad_syntax::TextRange;
 
-const USAGE: &str = "uso: scadr [-o output.csg|.echo|.stl|.off|-] [--export-format asciistl|binstl|stl|off|csg|echo] [-L dir]... [-D var=expr]... [--enable=feature]... input.scad";
+const USAGE: &str = "usage: scadr [-o output.csg|.echo|.stl|.off|-] [--export-format asciistl|binstl|stl|off|csg|echo] [-L dir]... [-D var=expr]... [--enable=feature]... input.scad";
 
 /// Every output suffix / `--export-format` value OpenSCAD accepts.
 const OPENSCAD_FORMATS: &[&str] = &[
@@ -90,10 +90,10 @@ fn enable_feature(
 fn parse_define(raw: &str) -> Result<(String, String), String> {
     let (name, expr) = raw
         .split_once('=')
-        .ok_or_else(|| format!("-D richiede 'nome=espressione', trovato '{raw}'"))?;
+        .ok_or_else(|| format!("-D expects 'name=expression', got '{raw}'"))?;
     let name = name.trim();
     if name.is_empty() {
-        return Err(format!("-D nome variabile vuoto in '{raw}'"));
+        return Err(format!("-D empty variable name in '{raw}'"));
     }
     Ok((name.to_string(), expr.trim().to_string()))
 }
@@ -111,19 +111,17 @@ fn parse_args() -> Result<Options, String> {
     while let Some(arg) = args.next() {
         let text = arg.to_string_lossy();
         match text.as_ref() {
-            "-o" => output = Some(PathBuf::from(args.next().ok_or("-o richiede un file")?)),
+            "-o" => output = Some(PathBuf::from(args.next().ok_or("-o requires a file")?)),
             "-L" => {
-                library_paths.push(PathBuf::from(
-                    args.next().ok_or("-L richiede una cartella")?,
-                ));
+                library_paths.push(PathBuf::from(args.next().ok_or("-L requires a directory")?));
             }
             "-D" => {
-                let raw = args.next().ok_or("-D richiede 'nome=espressione'")?;
+                let raw = args.next().ok_or("-D requires 'name=expression'")?;
                 defines.push(parse_define(&raw.to_string_lossy())?);
             }
             "-h" | "--help" => return Err(USAGE.into()),
             "--enable" => {
-                let feat = args.next().ok_or("--enable richiede una feature")?;
+                let feat = args.next().ok_or("--enable requires a feature")?;
                 enable_feature(
                     &feat.to_string_lossy(),
                     &mut object_function,
@@ -132,12 +130,12 @@ fn parse_args() -> Result<Options, String> {
                 );
             }
             "--export-format" => {
-                let fmt = args.next().ok_or("--export-format richiede un formato")?;
+                let fmt = args.next().ok_or("--export-format requires a format")?;
                 export_format = Some(fmt.to_string_lossy().into_owned());
             }
             // Accepted for command-line compatibility; we always use Manifold.
             "--backend" => {
-                args.next().ok_or("--backend richiede un valore")?;
+                args.next().ok_or("--backend requires a value")?;
             }
             flag if flag.starts_with("--backend=") => {}
             flag if flag.starts_with("--export-format=") => {
@@ -163,7 +161,7 @@ fn parse_args() -> Result<Options, String> {
             }
             // `-o -` writes to stdout.
             flag if flag.starts_with('-') && flag != "-" => {
-                return Err(format!("opzione sconosciuta: {flag}"));
+                return Err(format!("unknown option: {flag}"));
             }
             _ => input = Some(PathBuf::from(&arg)),
         }

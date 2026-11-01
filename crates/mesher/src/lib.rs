@@ -114,9 +114,9 @@ pub struct RenderOptions {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
-    #[error("calcolo annullato")]
+    #[error("evaluation cancelled")]
     Cancelled,
-    #[error("errore del kernel geometrico: {0}")]
+    #[error("geometry kernel error: {0}")]
     Kernel(String),
 }
 
@@ -144,7 +144,7 @@ pub fn render_with_files(
                 .downcast_ref::<String>()
                 .cloned()
                 .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
-                .unwrap_or_else(|| "errore interno".into());
+                .unwrap_or_else(|| "internal error".into());
             Err(RenderError::Kernel(message))
         }
     }

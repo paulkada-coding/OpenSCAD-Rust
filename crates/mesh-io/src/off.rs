@@ -23,9 +23,9 @@ use crate::number::format_shortest;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OffError {
-    #[error("errore di I/O: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] io::Error),
-    #[error("OFF non valido alla riga {line}: {message}")]
+    #[error("invalid OFF at line {line}: {message}")]
     Invalid { line: usize, message: String },
 }
 
@@ -74,13 +74,13 @@ pub fn read_off_polygons(bytes: &[u8]) -> Result<OffPolygons, OffError> {
 
     let (header_line, header) = lines
         .next()
-        .ok_or_else(|| invalid(1, "file vuoto".into()))?;
+        .ok_or_else(|| invalid(1, "empty file".into()))?;
     let mut tokens = header.split_whitespace();
     let keyword = tokens.next().unwrap_or_default();
     if !keyword.ends_with("OFF") || keyword.len() > 5 {
         return Err(invalid(
             header_line,
-            format!("intestazione OFF attesa, trovato {keyword:?}"),
+            format!("expected OFF header, found {keyword:?}"),
         ));
     }
     // Counts on the header line or on the next meaningful line.
@@ -89,16 +89,16 @@ pub fn read_off_polygons(bytes: &[u8]) -> Result<OffPolygons, OffError> {
     if count_tokens.is_empty() {
         let (n, l) = lines
             .next()
-            .ok_or_else(|| invalid(header_line + 1, "mancano i conteggi".into()))?;
+            .ok_or_else(|| invalid(header_line + 1, "missing counts".into()))?;
         count_line = n;
         count_tokens = l.split_whitespace().collect();
     }
     let parse_count = |t: Option<&&str>, what: &str| -> Result<usize, OffError> {
         t.and_then(|s| s.parse().ok())
-            .ok_or_else(|| invalid(count_line, format!("numero di {what} non valido")))
+            .ok_or_else(|| invalid(count_line, format!("invalid {what} count")))
     };
-    let nv = parse_count(count_tokens.first(), "vertici")?;
-    let nf = parse_count(count_tokens.get(1), "facce")?;
+    let nv = parse_count(count_tokens.first(), "vertex")?;
+    let nf = parse_count(count_tokens.get(1), "face")?;
 
     let mut out = OffPolygons {
         vertices: Vec::with_capacity(nv),
@@ -107,12 +107,12 @@ pub fn read_off_polygons(bytes: &[u8]) -> Result<OffPolygons, OffError> {
     for k in 0..nv {
         let (n, l) = lines
             .next()
-            .ok_or_else(|| invalid(0, format!("attesi {nv} vertici, trovati {k}")))?;
+            .ok_or_else(|| invalid(0, format!("expected {nv} vertices, found {k}")))?;
         let mut coords = l.split_whitespace().map(str::parse::<f64>);
         let mut coord = || -> Result<f64, OffError> {
             match coords.next() {
                 Some(Ok(v)) => Ok(v),
-                _ => Err(invalid(n, "coordinata non valida".into())),
+                _ => Err(invalid(n, "invalid coordinate".into())),
             }
         };
         out.vertices.push(DVec3::new(coord()?, coord()?, coord()?));
@@ -120,20 +120,23 @@ pub fn read_off_polygons(bytes: &[u8]) -> Result<OffPolygons, OffError> {
     for k in 0..nf {
         let (n, l) = lines
             .next()
-            .ok_or_else(|| invalid(0, format!("attese {nf} facce, trovate {k}")))?;
+            .ok_or_else(|| invalid(0, format!("expected {nf} faces, found {k}")))?;
         let mut items = l.split_whitespace();
         let count: usize = items
             .next()
             .and_then(|s| s.parse().ok())
-            .ok_or_else(|| invalid(n, "numero di vertici della faccia non valido".into()))?;
+            .ok_or_else(|| invalid(n, "invalid face vertex count".into()))?;
         let mut face = Vec::with_capacity(count);
         for _ in 0..count {
             let index: u32 = items
                 .next()
                 .and_then(|s| s.parse().ok())
-                .ok_or_else(|| invalid(n, "indice di vertice non valido".into()))?;
+                .ok_or_else(|| invalid(n, "invalid vertex index".into()))?;
             if index as usize >= nv {
-                return Err(invalid(n, format!("indice {index} fuori dai {nv} vertici")));
+                return Err(invalid(
+                    n,
+                    format!("vertex index {index} out of bounds ({nv} vertices)"),
+                ));
             }
             face.push(index);
         }
