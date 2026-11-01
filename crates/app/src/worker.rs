@@ -44,6 +44,7 @@ pub struct JobResult {
 struct Job {
     generation: u64,
     path: PathBuf,
+    defines: Vec<(String, String)>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -84,7 +85,7 @@ impl Worker {
     }
 
     /// Queues a (re)evaluation and returns its generation number.
-    pub fn submit(&mut self, path: PathBuf) -> u64 {
+    pub fn submit(&mut self, path: PathBuf, defines: Vec<(String, String)>) -> u64 {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.store(true, Ordering::Relaxed);
         }
@@ -94,6 +95,7 @@ impl Worker {
         let _ = self.jobs.send(Job {
             generation: self.generation,
             path,
+            defines,
             cancel,
         });
         self.generation
@@ -119,7 +121,7 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
         Err(err) => {
             result.console.push(ConsoleLine {
                 kind: LineKind::Error,
-                text: format!("Impossibile leggere '{}': {err}", job.path.display()),
+                text: format!("Cannot read '{}': {err}", job.path.display()),
             });
             return result;
         }
@@ -127,6 +129,7 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
 
     let started = Instant::now();
     let mut evaluator = Evaluator::new(EvalOptions {
+        defines: job.defines.clone(),
         cache: Some(cache.clone()),
         ..EvalOptions::with_standard_libraries()
     });

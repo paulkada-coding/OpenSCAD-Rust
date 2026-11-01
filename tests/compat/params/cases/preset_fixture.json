@@ -1,0 +1,15 @@
+{
+    "fileFormatVersion": "1",
+    "parameterSets": {
+        "clamped": {
+            "num_range": "999",
+            "num_enum": "40",
+            "flag": "false",
+            "label": "ABCDEFGH",
+            "mode": "b",
+            "vec3": "[-10, 2.5, 50]",
+            "secret": "1",
+            "unknown": "7"
+        }
+    }
+}

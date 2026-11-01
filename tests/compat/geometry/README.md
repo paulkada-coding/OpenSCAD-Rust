@@ -1,35 +1,35 @@
-# Corpus di geometria (render 3D)
+# Geometry Compatibility Corpus (3D Render)
 
-Casi che confrontano la **geometria** prodotta dal nostro motore (`scadr` + `mesher`) con quella di
-**OpenSCAD Nightly 2026.10.22** (backend Manifold). Ogni caso viene eseguito con
+Test cases comparing the **geometry** produced by our engine (`scadr` + `mesher`) against
+**OpenSCAD Nightly 2026.10.22** (Manifold backend). Each case is run with:
 
 ```
-<motore> -o <nome>.stl --export-format asciistl [compat-args] <nome>.scad
+<engine> -o <name>.stl --export-format asciistl [compat-args] <name>.scad
 ```
 
-e dall'STL ASCII si calcolano delle metriche, confrontate con quelle registrate da OpenSCAD in
-`expected/<nome>.json`. Si usa l'STL ASCII perché OpenSCAD lo scrive con precisione piena
-(numeri più corti che si rileggono identici); l'OFF di OpenSCAD ha solo 6 cifre significative e l'STL
-binario è in `float` a 32 bit. Il comportamento osservato dell'export è descritto in
+Mesh metrics are computed from the ASCII STL and compared against those recorded from OpenSCAD in
+`expected/<name>.json`. ASCII STL is used because OpenSCAD writes it at full double precision
+(shortest round-trip numbers); OpenSCAD's OFF format only writes 6 significant digits and binary
+STL uses 32-bit `float`. Observed export behavior is documented in
 [`docs/openscad-behavior.md`](../../../docs/openscad-behavior.md) §16.
 
-Gli expected sono nel repository: per l'uso normale **OpenSCAD non serve**.
+Expected files are checked into the repository: for normal runs **OpenSCAD is not required**.
 
-## Struttura
+## Layout
 
 ```
 tests/compat/geometry/
-  cases/<argomento>_<nome>.scad   un caso per file (solo i .scad al primo livello)
-  cases/data/                      octahedron.stl (per import), heights.dat (per surface)
-  expected/<nome>.json             metriche, log ed exit code registrati da OpenSCAD
+  cases/<topic>_<name>.scad       one case per file (only top-level .scad files)
+  cases/data/                     octahedron.stl (for import), heights.dat (for surface)
+  expected/<name>.json            metrics, log, and exit code recorded from OpenSCAD
 ```
 
-La direttiva `// compat-args:` (nelle prime 5 righe) funziona come nel corpus testuale: i modelli
-reali la usano per variare i parametri con `-D`, ad esempio
+The `// compat-args:` directive (within the first 5 lines) works just like in the text corpus:
+real-world models use it to vary parameters via `-D`, for example
 `// compat-args: -D FINESTRA="ruota" -D TESTO="BLU" -D N_POS=2 -D TAB_POS=1`
-(gli argomenti sono separati da spazi e passati senza shell: niente spazi dentro i valori).
+(arguments are split on whitespace and passed directly without a shell: no spaces inside values).
 
-## Metriche (`expected/<nome>.json`)
+## Metrics (`expected/<name>.json`)
 
 ```json
 {
@@ -49,52 +49,52 @@ reali la usano per variare i parametri con `-D`, ad esempio
 }
 ```
 
-| Campo | Significato |
+| Field | Meaning |
 |---|---|
-| `exit_code` | codice di uscita del motore (OpenSCAD: 0, oppure 1 senza file) |
-| `top_level` | riga `Current top level object is empty.` / `… is not a 3D object.` se stampata, altrimenti `null` |
-| `log` | stderr normalizzato come nel corpus testuale (solo i messaggi: `ECHO:`, `WARNING:`, `ERROR:`…; le statistiche sono scartate) |
-| `geometry` | `null` se non è stato scritto nessun file |
-| `triangles` | faccette dell'STL (anche degeneri) |
-| `vertices` | vertici distinti dopo la saldatura delle coordinate identiche bit a bit |
-| `volume`, `area` | volume con segno (teorema della divergenza, rispetto al centro del box) e area |
-| `bbox_min`, `bbox_max` | box di ingombro |
-| `manifold` | ogni spigolo è usato da esattamente due triangoli con verso opposto |
-| `open_edges`, `nonmanifold_edges`, `degenerate_triangles` | spigoli con un solo triangolo, spigoli con più di due triangoli (o due nello stesso verso), triangoli con due vertici coincidenti |
-| `components`, `euler`, `genus` | pezzi connessi, χ = V − E + F, genere con la convenzione di Manifold stampata da OpenSCAD: `1 − χ/2` (due cubi separati → −1) |
-| `vertex_hash` | FNV-1a 64 dell'elenco ordinato dei vertici distinti arrotondati a 1e-6 |
-| `triangle_hash` | FNV-1a 64 dei triangoli (vertici arrotondati a 1e-6, rotazione canonica che conserva il verso, elenco ordinato) |
-| `vertex_list` | i vertici arrotondati ordinati, solo se sono al massimo 64 |
+| `exit_code` | engine exit code (OpenSCAD: 0, or 1 when no file is written) |
+| `top_level` | `Current top level object is empty.` / `… is not a 3D object.` line if printed, otherwise `null` |
+| `log` | normalized stderr as in the text corpus (messages only: `ECHO:`, `WARNING:`, `ERROR:`…; render stats discarded) |
+| `geometry` | `null` if no output file was written |
+| `triangles` | STL facets (including degenerate ones) |
+| `vertices` | distinct vertices after bit-exact coordinate welding |
+| `volume`, `area` | signed volume (divergence theorem relative to bounding-box center) and surface area |
+| `bbox_min`, `bbox_max` | axis-aligned bounding box |
+| `manifold` | every edge is shared by exactly two triangles with opposite winding |
+| `open_edges`, `nonmanifold_edges`, `degenerate_triangles` | edges with a single triangle, edges with > 2 triangles (or two with matching winding), triangles with repeated vertices |
+| `components`, `euler`, `genus` | connected components, χ = V − E + F, genus using Manifold's convention printed by OpenSCAD: `1 − χ/2` (two disjoint cubes → −1) |
+| `vertex_hash` | 64-bit FNV-1a of the sorted list of distinct vertices rounded to 1e-6 |
+| `triangle_hash` | 64-bit FNV-1a of triangles (vertices rounded to 1e-6, winding-preserving canonical rotation, sorted list) |
+| `vertex_list` | sorted rounded vertices, included only when at most 64 |
 
-Tutte le metriche sono indipendenti dall'ordine dei triangoli nel file (i triangoli vengono messi in
-ordine canonico prima delle somme, quindi anche volume e area sono riproducibili all'ultimo bit).
+All metrics are independent of triangle order in the file (triangles are placed in canonical order
+before summation, making volume and area bit-reproducible).
 
-## Esiti
+## Outcomes
 
-| Esito | Significato |
+| Outcome | Meaning |
 |---|---|
-| `EXACT` | stessi vertici e stessi triangoli (a 1e-6), stesso log, stesso exit code; per i casi senza geometria: stesso esito (`top_level`) |
-| `EQUIVALENT` | volume, area e box entro le tolleranze, stessa topologia (`manifold`, `components`, `genus`), stesso log ed exit code, ma vertici o triangolazione diversi |
-| `FAIL` | metrica fuori tolleranza, geometria mancante o in più, log o exit code diversi |
-| `ERROR` / `TIMEOUT` / `SKIP` | motore non avviabile o STL illeggibile / tempo scaduto / expected mancante |
+| `EXACT` | same vertices and triangles (at 1e-6), same log, same exit code; for empty-geometry cases: same `top_level` outcome |
+| `EQUIVALENT` | volume, area, and bounding box within tolerances, same topology (`manifold`, `components`, `genus`), same log and exit code, but vertices or triangulation differ |
+| `FAIL` | metric outside tolerance, missing or unexpected geometry, differing log or exit code |
+| `ERROR` / `TIMEOUT` / `SKIP` | engine failed to start or unreadable STL / timed out / missing expected file |
 
-Tolleranze predefinite: volume e area **relative 1e-6**, box **assoluta 1e-6** (opzioni
-`--tol-volume`, `--tol-area`, `--tol-bbox`). Il numero di triangoli e di vertici e gli spigoli aperti
-sono informativi (non decidono l'esito da soli). Exit code 0 se tutti i casi sono `EXACT` o
-`EQUIVALENT` (`--strict`: solo `EXACT`).
+Default tolerances: **1e-6 relative** for volume and area, **1e-6 absolute** for bounding box
+(`--tol-volume`, `--tol-area`, `--tol-bbox`). Triangle count, vertex count, and open edges are
+informational (they do not decide the outcome on their own). Exit code 0 if every case is `EXACT`
+or `EQUIVALENT` (`--strict`: `EXACT` only).
 
-## Come eseguire
+## Running
 
 ```powershell
 cargo build -p scadr
-cargo run -p compat-runner -- --geometry                       # tutti i casi con target\debug\scadr.exe
-cargo run -p compat-runner -- --geometry --filter bool_ -v     # solo alcuni casi, con tabella delle metriche
+cargo run -p compat-runner -- --geometry                       # all cases with target\debug\scadr.exe
+cargo run -p compat-runner -- --geometry --filter bool_ -v     # subset, with metric tables
 cargo run -p compat-runner -- --geometry --tol-volume 1e-9 --strict
-cargo run -p compat-runner -- --geometry --ignore-log          # ignora i messaggi su stderr
+cargo run -p compat-runner -- --geometry --ignore-log          # ignore stderr messages
 ```
 
-Output (una riga per caso, poi il riepilogo; con `-v` per ogni caso non `EXACT` la tabella
-metrica/atteso/ottenuto/scarto/tolleranza e il diff del log). Esempio illustrativo:
+Output (one line per case followed by a summary; with `-v`, non-`EXACT` cases include a
+metric/expected/actual/delta/tolerance table and log diff). Illustrative example:
 
 ```
 CASE                 RESULT        TIME  DETAIL
@@ -105,47 +105,46 @@ bool_cross_holes     FAIL         0.02s  exit code 1 (expected 0); no geometry w
 Total: 100 cases, 1 exact, 1 equivalent, 98 failed, 0 errors, 0 timeouts, 0 skipped (1.0% exact, 2.0% exact or equivalent)
 ```
 
-Gli STL grezzi e le metriche ottenute finiscono in `target\compat-out\geometry\engine\<nome>.stl|json`
-(quelli di OpenSCAD in `…\geometry\openscad\` con `--update-expected`).
+Raw STLs and computed metrics are written to `target\compat-out\geometry\engine\<name>.stl|json`
+(OpenSCAD's outputs go to `…\geometry\openscad\` when running `--update-expected`).
 
-Controllo di sanità: con OpenSCAD come motore tutti i casi devono risultare `EXACT`:
+Sanity check: running with OpenSCAD itself as the engine must produce `EXACT` on all cases:
 
 ```powershell
 cargo run -p compat-runner -- --geometry --engine 'C:\Program Files\OpenSCAD (Nightly)\openscad.exe'
 ```
 
-## Come rigenerare gli expected
+## Regenerating expected files
 
 ```powershell
-cargo run -p compat-runner -- --geometry --update-expected                 # tutti
-cargo run -p compat-runner -- --geometry --update-expected --filter rex_   # solo alcuni
+cargo run -p compat-runner -- --geometry --update-expected                 # all cases
+cargo run -p compat-runner -- --geometry --update-expected --filter rex_   # subset
 ```
 
-Riporta `new` / `updated` / `unchanged`; rieseguirlo senza modifiche deve dare `0 changed`.
-Per aggiungere un caso: creare `cases/<argomento>_<nome>.scad`, rigenerare con `--filter <nome>`,
-controllare il JSON e verificare che il caso resti `EXACT` contro OpenSCAD stesso su più esecuzioni
-(vedi sotto).
+Reports `new` / `updated` / `unchanged`; re-running without changes must report `0 changed`.
+To add a case: create `cases/<topic>_<name>.scad`, regenerate with `--filter <name>`, inspect the
+JSON, and verify that the case remains `EXACT` against OpenSCAD across multiple runs (see below).
 
-Regole per i casi: veloci (< 1 s in OpenSCAD; oggi il più lento, `model_porta_carte_taratura`,
-impiega 0.5 s), deterministici, senza librerie esterne. **Attenzione al non determinismo di
-OpenSCAD**: `minkowski()` con un operando non convesso e un secondo operando arrotondato (sfera,
-cilindro) produce a ogni esecuzione triangolazioni e vertici collineari diversi (stesso volume a
-1e-16), perché i pezzi convessi vengono uniti in parallelo. `mink_nonconvex` usa quindi un cubo come
-secondo operando, che risulta stabile (15 esecuzioni su 15).
+Case guidelines: fast (< 1 s in OpenSCAD; currently the slowest, `model_porta_carte_taratura`,
+takes 0.5 s), deterministic, no external libraries. **Watch out for OpenSCAD non-determinism**:
+`minkowski()` with a non-convex operand and a curved second operand (sphere, cylinder) produces
+different triangulations and collinear vertices across runs (same volume to 1e-16) because convex
+pieces are unioned in parallel. `mink_nonconvex` therefore uses a cube as its second operand, which
+is deterministic (15/15 runs).
 
-## Casi (100)
+## Cases (100)
 
-| Prefisso | Casi | Contenuto |
+| Prefix | Cases | Coverage |
 |---|---|---|
-| `prim_` | 23 | `cube` (scalare, vettore, centrato, minuscolo, dimensione zero → vuoto), `sphere` (default, `$fn` dispari e < 3, `$fa`/`$fs`, raggio minuscolo e grande, `$fs` fine), `cylinder` (default, `$fn` 6 e 500, `$fa` 1 su r = 500, minuscolo, cono, cono rovesciato centrato, tronco con diametri e `$fs`), `polyhedron` (tetraedro, facce quadrilatere, piramide con base quadrata, facce con verso sbagliato) |
-| `twod_` | 6 | primitive 2D estruse: quadrato + cerchio, cerchio con `$fa`/`$fs`, poligono con foro (`paths`), stella concava, percorsi sovrapposti (la sovrapposizione diventa un foro), isole separate |
-| `xf_` | 8 | `translate`/`rotate` sui tre assi, rotazione attorno a un asse, `scale` non uniforme + `mirror`, scala negativa, `multmatrix` (taglio, matrice 3×4), `resize`, `resize` con `auto`, `color` |
-| `bool_` | 11 | unione, differenza, intersezione, facce complanari (differenza e unione), cubi che si toccano su uno spigolo, tre fori ortogonali, risultato vuoto, unione implicita di un `for`, `intersection_for`, booleane annidate |
-| `hull_` / `mink_` | 2 / 3 | `hull` 3D e 2D; `minkowski` convesso, non convesso, 2D |
-| `lex_` | 7 | `linear_extrude`: `center`, `twist` + `slices`, `twist` negativo con fette calcolate, `scale` vettoriale, `scale = 0`, tutto insieme, direzione `v` |
-| `rex_` | 6 | `rotate_extrude`: toro, frammenti di default, `angle` 90 e −135, `start`, profilo che tocca l'asse |
-| `off_` / `proj_` / `fill_` / `text_` | 4 / 2 / 1 / 2 | `offset` `r` positivo e negativo, `delta`, `chamfer`; `projection` completa e `cut`; `fill`; `text` semplice e centrato con `$fn` |
-| `import_` / `surface_` | 2 / 2 | `import` di un STL ASCII (anche scalato e in una differenza); `surface` da `.dat`, anche centrato |
-| `mod_` | 4 | modificatori `#` (incluso), `%` (escluso), `!` (solo quel sotto-albero), `*` (disabilitato) |
-| `cli_` | 5 | livello superiore vuoto, oggetto 2D esportato in STL (nessun file, exit 1), 2D misto a 3D (warning del render), errore di valutazione (geometria parziale, exit 0), `$preview` falso nel render |
-| `model_` | 12 | copie di `examples/porta_carte.scad` (stampa, verticale con 2 file, coperchio, dima di taratura) e `examples/separatore.scad` (default, finestra a ruota con testo, verticale senza piedino), varianti via `-D`; copie dal corpus testuale di `model_bracket`, `model_vase`, `model_gear_polygon`, `model_parametric_box`, `model_spiral_tower` |
+| `prim_` | 23 | `cube` (scalar, vector, centered, tiny, zero dimension → empty), `sphere` (default, odd `$fn` and < 3, `$fa`/`$fs`, tiny and large radius, fine `$fs`), `cylinder` (default, `$fn` 6 and 500, `$fa` 1 on r = 500, tiny, cone, centered inverted cone, frustum with diameters and `$fs`), `polyhedron` (tetrahedron, quad faces, square-base pyramid, reversed-winding faces) |
+| `twod_` | 6 | extruded 2D primitives: square + circle, circle with `$fa`/`$fs`, polygon with hole (`paths`), concave star, overlapping paths (overlap becomes a hole), disjoint islands |
+| `xf_` | 8 | `translate`/`rotate` on three axes, axis-angle rotation, non-uniform `scale` + `mirror`, negative scale, `multmatrix` (shear, 3×4 matrix), `resize`, `resize` with `auto`, `color` |
+| `bool_` | 11 | union, difference, intersection, coplanar faces (difference and union), edge-touching cubes, three orthogonal holes, empty result, implicit union in `for`, `intersection_for`, nested booleans |
+| `hull_` / `mink_` | 2 / 3 | 3D and 2D `hull`; convex, non-convex, and 2D `minkowski` |
+| `lex_` | 7 | `linear_extrude`: `center`, `twist` + `slices`, negative `twist` with computed slices, vector `scale`, `scale = 0`, combined options, direction `v` |
+| `rex_` | 6 | `rotate_extrude`: torus, default fragments, `angle` 90 and −135, `start`, axis-touching profile |
+| `off_` / `proj_` / `fill_` / `text_` | 4 / 2 / 1 / 2 | positive and negative `offset` `r`, `delta`, `chamfer`; full and `cut` `projection`; `fill`; simple and centered `text` with `$fn` |
+| `import_` / `surface_` | 2 / 2 | ASCII STL `import` (including scaled inside a difference); `.dat` `surface`, including centered |
+| `mod_` | 4 | modifiers `#` (included), `%` (excluded), `!` (root subtree only), `*` (disabled) |
+| `cli_` | 5 | empty top level, 2D object exported to STL (no file, exit 1), 2D mixed with 3D (render warnings), evaluation error (partial geometry, exit 0), `$preview` false during render |
+| `model_` | 12 | copies of `examples/porta_carte.scad` (print layout, vertical 2-row box, lid, calibration gauge) and `examples/separatore.scad` (default, wheel window with text, vertical without foot), `-D` variants; copies from the text corpus of `model_bracket`, `model_vase`, `model_gear_polygon`, `model_parametric_box`, `model_spiral_tower` |

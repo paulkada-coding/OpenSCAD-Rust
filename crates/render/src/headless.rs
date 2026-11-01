@@ -10,17 +10,17 @@ use crate::scene::Scene;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
-    #[error("nessuna GPU compatibile: {0}")]
+    #[error("no compatible GPU adapter: {0}")]
     Adapter(#[from] wgpu::RequestAdapterError),
-    #[error("impossibile inizializzare la GPU: {0}")]
+    #[error("failed to initialize GPU device: {0}")]
     Device(#[from] wgpu::RequestDeviceError),
-    #[error("errore di attesa della GPU: {0}")]
+    #[error("GPU poll error: {0}")]
     Poll(#[from] wgpu::PollError),
-    #[error("lettura dell'immagine dalla GPU fallita: {0}")]
+    #[error("failed to read image back from GPU: {0}")]
     Readback(String),
-    #[error("errore di scrittura PNG: {0}")]
+    #[error("PNG encoding error: {0}")]
     Png(#[from] png::EncodingError),
-    #[error("errore di I/O: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
 

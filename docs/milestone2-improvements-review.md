@@ -1,31 +1,31 @@
-# Revisione Miglioramenti Post-Milestone 2 — Branch `milestone-2-improvements`
+# Post-Milestone 2 Improvements Review — Branch `milestone-2-improvements`
 
-Questo documento accompagna il branch `milestone-2-improvements`, ramificato a partire da `milestone-2-complete` (`1bf5ea0`), così **Claude** può:
-1. revisionare prima il completamento puro della Milestone 2 (`git diff main..milestone-2-complete`, descritto in `docs/milestone2-review.md`);
-2. revisionare separatamente i miglioramenti architetturali preparatori per le Milestone 3–6 (`git log --stat milestone-2-complete..milestone-2-improvements`).
-
----
-
-## 1. Riepilogo delle verifiche
-
-- **`compat-runner`**: **215 / 215 casi passati (100,0%)**.
-- **`cargo test --workspace`**: tutti i test verdi (inclusi i nuovi test di `scad-font`, source mapping bidirezionale, `SourceCache`, override `-D` e fuzzing/live-typing).
-- **`cargo clippy --workspace --all-targets`**: **0 warning**.
-- **`cargo fmt --all --check`**: **0 differenze** sull'intero workspace.
-- **Zero `unsafe`** aggiunto.
+This document accompanies branch `milestone-2-improvements`, branched off `milestone-2-complete` (`1bf5ea0`), so **Claude** can:
+1. review the pure Milestone 2 completion first (`git diff main..milestone-2-complete`, documented in `docs/milestone2-review.md`);
+2. review the preparatory architectural improvements for Milestones 3–6 separately (`git log --stat milestone-2-complete..milestone-2-improvements`).
 
 ---
 
-## 2. Comandi rapidi per la revisione
+## 1. Verification Summary
+
+- **`compat-runner`**: **215 / 215 cases passed (100.0%)**.
+- **`cargo test --workspace`**: all tests passing (including new tests for `scad-font`, bidirectional source mapping, `SourceCache`, `-D` overrides, and fuzzing/live-typing).
+- **`cargo clippy --workspace --all-targets`**: **0 warnings**.
+- **`cargo fmt --all --check`**: **0 diffs** across the entire workspace.
+- **Zero `unsafe`** added.
+
+---
+
+## 2. Quick Review Commands
 
 ```powershell
-# Commit aggiunti rispetto a milestone-2-complete
+# Commits added on top of milestone-2-complete
 git log --oneline --reverse milestone-2-complete..milestone-2-improvements
 
-# Diff solo del codice (escludendo il commit finale di formattazione style)
+# Code diff excluding the final rustfmt style commit
 git diff milestone-2-complete..6aa1318
 
-# Verifica completa
+# Full verification
 cargo fmt --all --check
 cargo clippy --workspace --all-targets
 cargo test --workspace
@@ -35,55 +35,55 @@ cargo run -p compat-runner
 
 ---
 
-## 3. Dettaglio commit per commit
+## 3. Commit-by-Commit Breakdown
 
 ### Commit 1 — `c15b696`
 **`feat(scad-font,scad-eval): extract shared scad-font crate with glyph contour flattening`**
 
-- **Motivazione**: in `milestone-2-complete` il motore font viveva dentro `scad-eval` per servire `fontmetrics()` e `textmetrics()`. In **Milestone 5** `geometry` dovrà generare i poligoni 2D reali di `text()` usando gli stessi font e lo stesso pipeline di shaping.
-- **Cosa è stato fatto**:
-  - Creato il crate indipendente `crates/scad-font` (spostando con `git mv` i font Liberation Sans 2.00.1 SIL OFL 1.1).
-  - Esposte API pure e disaccoppiate da `Value`: `FontMetrics`, `TextMetrics`, `TextParams`, `measure_font()`, `measure_text()`.
-  - Aggiunta già pronta per Milestone 5 `shape_contours(&TextParams, max_chord_error) -> Vec<Vec<[f64; 2]>>`: `FlattenPen` suddivide ricorsivamente le curve di Bézier quadratiche e cubiche entro la tolleranza richiesta e restituisce gli anelli chiusi 2D già posizionati e allineati (`halign`/`valign`) nello spazio coordinate di OpenSCAD, pronti per `manifold::CrossSection`.
-  - Ridotto `crates/scad-eval/src/builtins/fonts.rs` a un sottile adattatore (~180 righe inclusi i test) che valida gli argomenti e costruisce i `Value::Object`.
+- **Motivation**: in `milestone-2-complete` the font engine lived inside `scad-eval` to power `fontmetrics()` and `textmetrics()`. In **Milestone 5** (and the mesher) `text()` needs to generate actual 2D glyph polygons using the exact same fonts and shaping pipeline.
+- **What was done**:
+  - Created standalone crate `crates/scad-font` (`git mv` of bundled Liberation Sans 2.00.1 SIL OFL 1.1 fonts).
+  - Exposed pure APIs decoupled from `Value`: `FontMetrics`, `TextMetrics`, `TextParams`, `measure_font()`, `measure_text()`.
+  - Added `shape_contours(&TextParams, max_chord_error) -> Vec<Vec<[f64; 2]>>`: `FlattenPen` recursively subdivides quadratic and cubic Bézier curves within the requested chord tolerance and returns closed 2D rings positioned and aligned (`halign`/`valign`) in OpenSCAD coordinate space, ready for `manifold::CrossSection`.
+  - Reduced `crates/scad-eval/src/builtins/fonts.rs` to a thin adapter (~180 lines including tests) that validates arguments and builds `Value::Object`s.
 
 ---
 
 ### Commit 2 — `13899c6`
 **`feat(geometry,scad-eval): add bidirectional CSG source mapping and root call tracking`**
 
-- **Motivazione**: per il click-to-code nel viewport 3D e la futura modellazione diretta / AI, il solo `Node::source` (che punta all'istruzione primitiva immediata, spesso sepolta dentro un modulo utente o una libreria esterna come BOSL2) non basta: serve sapere anche quale istruzione top-level nel file principale dell'utente ha generato quel sottoalbero, e viceversa trovare il nodo CSG sotto il cursore dell'editor.
-- **Cosa è stato fatto**:
-  - Aggiunto `root_call: Option<SourceRef>` su `geometry::csg::Node`, popolato automaticamente da `Evaluator` all'ingresso di ogni istanza top-level.
-  - Aggiunti `SourceRef::contains(file, offset)` e `Node::find_at_offset(file, offset) -> Option<&Node>` (ricerca del nodo più specifico sotto il cursore).
-  - Aggiunto `Evaluator::resolve_source(SourceRef) -> Option<ResolvedSource<'_>>` che restituisce percorso del file, `(riga, colonna)` 1-based di inizio/fine e lo snippet esatto del sorgente.
+- **Motivation**: for 3D viewport click-to-code and future direct modeling / AI editing, `Node::source` alone (pointing to the leaf primitive, often buried inside a user module or external library such as BOSL2) is not enough: we also need to know which top-level call in the user's main file produced that subtree, and conversely locate the CSG node under the editor cursor.
+- **What was done**:
+  - Added `root_call: Option<SourceRef>` on `geometry::csg::Node`, populated automatically by `Evaluator` when entering each top-level instantiation.
+  - Added `SourceRef::contains(file, offset)` and `Node::find_at_offset(file, offset) -> Option<&Node>` (most specific node under cursor).
+  - Added `Evaluator::resolve_source(SourceRef) -> Option<ResolvedSource<'_>>` returning file path, 1-based `(line, col)` start/end, and exact source snippet.
 
 ---
 
 ### Commit 3 — `e2d4455`
 **`feat(scad-eval,scadr): add standard library paths, reusable SourceCache, and -L/-D/.echo CLI support`**
 
-- **Motivazione**: aprire progetti reali che usano `MCAD`/`BOSL2` senza configurazioni manuali, supportare i flag CLI standard `-L`, `-D` ed export `.echo`, e rendere istantanee le rivalutazioni ripetute quando l'utente muoverà gli slider del Customizer (Milestone 4).
-- **Cosa è stato fatto**:
-  - `default_library_paths()` e `EvalOptions::with_standard_libraries()`: leggono `OPENSCADPATH` e la cartella utente standard (`Documents/OpenSCAD/libraries` su Windows/macOS, anche sotto `OneDrive`, e `~/.local/share/OpenSCAD/libraries` su Linux).
-  - Chiavi canoniche (`std::fs::canonicalize` con fallback) per `self.parsed` e `self.libraries`, evitando di rileggere/rivalutare la stessa libreria quando inclusa con percorsi relativi diversi (`a/../lib/x.scad` vs `lib/x.scad`) pur preservando intatto il percorso relativo nei messaggi diagnostici.
-  - `SourceCache` condivisibile tra più esecuzioni di `Evaluator` (`EvalOptions::cache: Option<SourceCache>`): mantiene in memoria testo, `LineIndex`, diagnostiche sintattiche e AST (`Rc<SourceFile>`) invalidando automaticamente la voce se `(modified, len)` del file su disco cambia.
-  - `EvalOptions::defines`: applica gli override `-D nome=espr` (e futuri valori del Customizer) sostituendo l'espressione nella posizione dell'assegnazione top-level originale — così le variabili dipendenti (`b = a * 2;`) vedono il valore aggiornato senza generare falsi warning di riassegnazione.
-  - Aggiornato `crates/scadr/src/main.rs` con supporto a `-L <dir>`, `--libdir=<dir>`, `-D <var=expr>` ed export `-o file.echo`.
+- **Motivation**: open real-world projects using `MCAD`/`BOSL2` out of the box, support standard CLI flags `-L`, `-D`, and `.echo` export, and make repeated re-evaluations instantaneous when dragging Customizer sliders (Milestone 4).
+- **What was done**:
+  - `default_library_paths()` and `EvalOptions::with_standard_libraries()`: read `OPENSCADPATH` and standard user library directories (`Documents/OpenSCAD/libraries` on Windows/macOS, including under `OneDrive`, and `~/.local/share/OpenSCAD/libraries` on Linux).
+  - Canonical keys (`std::fs::canonicalize` with fallback) for `self.parsed` and `self.libraries`, avoiding re-reading/re-evaluating the same library included via different relative paths (`a/../lib/x.scad` vs `lib/x.scad`) while keeping relative paths intact in diagnostic messages.
+  - `SourceCache` shareable across `Evaluator` runs (`EvalOptions::cache: Option<SourceCache>`): caches source text, `LineIndex`, syntax diagnostics, and AST (`Rc<SourceFile>`), automatically invalidating entries when `(modified, len)` on disk changes.
+  - `EvalOptions::defines`: applies `-D name=expr` overrides (and Customizer parameter values) at the position of the original top-level assignment — so dependent variables (`b = a * 2;`) see the updated value without triggering false reassignment warnings.
+  - Updated `crates/scadr/src/main.rs` with `-L <dir>`, `--libdir=<dir>`, `-D <var=expr>`, and `-o file.echo` export.
 
 ---
 
 ### Commit 4 — `6aa1318`
 **`test(scad-syntax,scad-eval): add live-editing prefix and fuzz property tests`**
 
-- **Motivazione**: in un IDE live con ricalcolo continuo mentre l'utente digita, il parser e l'interprete ricevono costantemente file troncati a metà token, stringhe aperte o espressioni malformate.
-- **Cosa è stato fatto**:
-  - Test su **tutti i prefissi UTF-8** carattere per carattere di programmi OpenSCAD complessi sia in `scad-syntax` (verificando l'invariante lossless `parse(prefix).syntax().to_string() == prefix` al 100%) sia in `scad-eval` (zero panic durante la valutazione).
-  - Fuzzing deterministico su 1.000 combinazioni casuali di token/operatori/escape malformati/parentesi annidate profonde (120 livelli) e casi limite numerici (`1/0`, `0/0`, swizzle invalidi, geometrie malformate).
+- **Motivation**: in a live IDE that re-evaluates continuously while typing, the parser and interpreter constantly receive mid-token truncated files, unclosed strings, or malformed expressions.
+- **What was done**:
+  - Tested **every character-by-character UTF-8 prefix** of complex OpenSCAD programs in both `scad-syntax` (verifying the lossless invariant `parse(prefix).syntax().to_string() == prefix` 100%) and `scad-eval` (zero panics during evaluation).
+  - Deterministic fuzzing across 1,000 random combinations of tokens/operators/malformed escapes/deeply nested parentheses (120 levels) and numeric edge cases (`1/0`, `0/0`, invalid swizzles, malformed geometry).
 
 ---
 
 ### Commit 5 — `5e6d5bb`
 **`style: format workspace with rustfmt`**
 
-- **Motivazione**: riallineare in un commit isolato di solo stile i 7 file preesistenti che differivano da `cargo fmt --all`, così d'ora in avanti `cargo fmt --all --check` può essere usato come controllo automatico senza rumore nei diff.
+- **Motivation**: align the 7 pre-existing files that differed from `cargo fmt --all` in an isolated style-only commit so `cargo fmt --all --check` can serve as an automated gate without diff noise going forward.

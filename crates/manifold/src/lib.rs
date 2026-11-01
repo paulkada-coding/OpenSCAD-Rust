@@ -44,35 +44,35 @@ use glam::DVec2;
 /// `NoError`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
-    #[error("la mesh contiene coordinate non finite (NaN o infinito)")]
+    #[error("mesh contains non-finite vertex coordinates (NaN or infinity)")]
     NonFiniteVertex,
-    #[error("la mesh non è un solido chiuso e ben formato (non manifold)")]
+    #[error("mesh is not a closed, well-formed solid (non-manifold)")]
     NotManifold,
-    #[error("un triangolo fa riferimento a un vertice inesistente")]
+    #[error("triangle references an out-of-bounds vertex index")]
     VertexIndexOutOfBounds,
-    #[error("proprietà dei vertici di lunghezza errata")]
+    #[error("vertex properties have wrong length")]
     PropertiesWrongLength,
-    #[error("mancano le coordinate dei vertici")]
+    #[error("missing vertex position properties")]
     MissingPositionProperties,
-    #[error("vettori di fusione dei vertici di lunghezza diversa")]
+    #[error("vertex merge vectors have different lengths")]
     MergeVectorsDifferentLengths,
-    #[error("indice di fusione dei vertici fuori intervallo")]
+    #[error("vertex merge index out of bounds")]
     MergeIndexOutOfBounds,
-    #[error("matrice di trasformazione di lunghezza errata")]
+    #[error("transform matrix has wrong length")]
     TransformWrongLength,
-    #[error("indice dei gruppi di triangoli di lunghezza errata")]
+    #[error("triangle run index has wrong length")]
     RunIndexWrongLength,
-    #[error("identificativi delle facce di lunghezza errata")]
+    #[error("face ID array has wrong length")]
     FaceIdWrongLength,
-    #[error("costruzione geometrica non valida")]
+    #[error("invalid geometry construction")]
     InvalidConstruction,
-    #[error("risultato troppo grande")]
+    #[error("result too large")]
     ResultTooLarge,
-    #[error("tangenti non valide")]
+    #[error("invalid tangents")]
     InvalidTangents,
-    #[error("operazione annullata")]
+    #[error("operation cancelled")]
     Cancelled,
-    #[error("errore sconosciuto di Manifold (codice {0})")]
+    #[error("unknown Manifold error (code {0})")]
     Unknown(i32),
 }
 

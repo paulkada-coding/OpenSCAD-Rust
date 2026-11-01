@@ -1,0 +1,5 @@
+below = -5; // [0:10]
+above = 25; // [0:10]
+above_max_only = 30; // [20]
+reversed_bounds = 5; // [10:2]
+large_warn = 1234567; // [0.00001:0.25]

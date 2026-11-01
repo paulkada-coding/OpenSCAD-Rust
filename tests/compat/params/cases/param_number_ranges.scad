@@ -1,0 +1,9 @@
+max_only = 5; // [20]
+max_only_neg = -3; // [20]
+min_max = 15; // [10:30]
+min_step_max = 0.3; // [-0.25:0.05:0.6]
+spin_step = 10; // 0.25
+spin_neg_step = 10; // -2
+ignored_unit = 12; // 12 mm
+incomplete_lo = 5; // [:10]
+incomplete_hi = 5; // [2:]

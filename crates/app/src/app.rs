@@ -14,7 +14,8 @@ use mesh_io::StlFormat;
 use mesher::{RenderOutput, Shape};
 use render::{LayerKind, LayerMesh, Projection, ViewPreset};
 
-use crate::settings::{self, FrameRate, Settings};
+use crate::customizer::{self, CustomizerEvent, CustomizerState, PersistedCustomizer};
+use crate::settings::{self, FrameRate, PanelSide, Settings};
 use crate::viewport::Viewport;
 use crate::worker::{ConsoleLine, JobResult, LineKind, Worker, modified_time};
 
@@ -102,6 +103,9 @@ pub struct ViewerApp {
     viewport: Viewport,
     worker: Worker,
     document: Option<Document>,
+    customizer: Option<CustomizerState>,
+    persisted_customizer: PersistedCustomizer,
+    show_customizer: bool,
     loading_stl: Option<PendingStl>,
     console: Vec<ConsoleLine>,
     show_console: bool,
@@ -117,7 +121,7 @@ impl ViewerApp {
         let render_state = cc
             .wgpu_render_state
             .clone()
-            .context("il renderer wgpu non è disponibile")?;
+            .context("wgpu render state is not available")?;
         let info = render_state.adapter.get_info();
         let gpu_name = format!("{} · {:?}", info.name, info.backend);
         log::info!("GPU: {gpu_name}");
@@ -127,11 +131,14 @@ impl ViewerApp {
             render_state,
             worker: Worker::spawn(cc.egui_ctx.clone()),
             document: None,
+            customizer: None,
+            persisted_customizer: PersistedCustomizer::load(cc.storage),
+            show_customizer: true,
             loading_stl: None,
             console: Vec::new(),
             show_console: true,
             last_watch: Instant::now(),
-            status: Status::Info("Pronto".into()),
+            status: Status::Info("Ready".into()),
             gpu_name,
             settings: Settings::load(cc.storage),
             settings_open: false,
@@ -145,9 +152,16 @@ impl ViewerApp {
     // ------------------------------------------------------------ opening
 
     fn open(&mut self, path: PathBuf, ctx: &egui::Context) {
+        if let Some(prev) = &self.customizer {
+            prev.persist_into(&mut self.persisted_customizer);
+        }
         if has_extension(&path, "scad") {
             self.console.clear();
             self.document = Some(Document::new(path.clone(), DocumentKind::Scad));
+            self.customizer = Some(CustomizerState::load_for_file(
+                &path,
+                &self.persisted_customizer,
+            ));
             self.viewport.clear(&self.render_state.device);
             self.evaluate(&path);
         } else {
@@ -156,11 +170,15 @@ impl ViewerApp {
     }
 
     fn evaluate(&mut self, path: &Path) {
-        let generation = self.worker.submit(path.to_path_buf());
+        let defines = self
+            .customizer
+            .as_ref()
+            .map_or_else(Vec::new, CustomizerState::active_defines);
+        let generation = self.worker.submit(path.to_path_buf(), defines);
         if let Some(doc) = &mut self.document {
             doc.pending = Some(generation);
         }
-        self.status = Status::Info(format!("Calcolo di {}…", file_name(path)));
+        self.status = Status::Info(format!("Evaluating {}…", file_name(path)));
     }
 
     fn reload(&mut self, ctx: &egui::Context) {
@@ -169,7 +187,12 @@ impl ViewerApp {
         };
         let path = doc.path.clone();
         match doc.kind {
-            DocumentKind::Scad => self.evaluate(&path),
+            DocumentKind::Scad => {
+                if let Some(cust) = &mut self.customizer {
+                    cust.reload_from_disk();
+                }
+                self.evaluate(&path);
+            }
             DocumentKind::Stl => self.start_stl_loading(path, ctx),
         }
     }
@@ -182,7 +205,7 @@ impl ViewerApp {
             let _ = sender.send(mesh_io::read_stl_file(&source));
             ctx.request_repaint();
         });
-        self.status = Status::Info(format!("Caricamento di {}…", file_name(&path)));
+        self.status = Status::Info(format!("Loading {}…", file_name(&path)));
         self.loading_stl = Some(PendingStl {
             path,
             result: receiver,
@@ -197,7 +220,7 @@ impl ViewerApp {
             Ok(outcome) => outcome,
             Err(TryRecvError::Empty) => return,
             Err(TryRecvError::Disconnected) => {
-                self.status = Status::Error("caricamento interrotto".into());
+                self.status = Status::Error("loading interrupted".into());
                 self.loading_stl = None;
                 return;
             }
@@ -212,11 +235,15 @@ impl ViewerApp {
                     .as_ref()
                     .is_some_and(|d| d.path == path && d.kind == DocumentKind::Stl);
                 if !reloading {
+                    if let Some(prev) = &self.customizer {
+                        prev.persist_into(&mut self.persisted_customizer);
+                    }
+                    self.customizer = None;
                     self.console.clear();
                     self.document = Some(Document::new(path.clone(), DocumentKind::Stl));
                 }
                 self.status = Status::Info(format!(
-                    "Aperto {} ({} triangoli)",
+                    "Opened {} ({} triangles)",
                     file_name(&path),
                     mesh.triangle_count()
                 ));
@@ -262,19 +289,19 @@ impl ViewerApp {
 
         let Some(output) = result.output else {
             // Keep showing the last good geometry while the file is fixed.
-            self.status = Status::Error(format!("{name}: errore, vedi la console"));
+            self.status = Status::Error(format!("{name}: error, see console"));
             self.show_console = true;
             return;
         };
         doc.timings = Some((result.eval_time, result.mesh_time));
         let has_errors = self.console.iter().any(|l| l.kind == LineKind::Error);
         let timing = format!(
-            "valutazione {} ms · geometria {} ms",
+            "eval {} ms · mesh {} ms",
             result.eval_time.as_millis(),
             result.mesh_time.as_millis()
         );
         self.status = if has_errors {
-            Status::Error(format!("{name}: errore, vedi la console ({timing})"))
+            Status::Error(format!("{name}: error, see console ({timing})"))
         } else {
             Status::Info(format!("{name} · {timing}"))
         };
@@ -327,6 +354,8 @@ impl ViewerApp {
             .any(|(path, seen)| modified_time(path) != *seen);
         if changed {
             self.reload(ctx);
+        } else if let Some(cust) = &mut self.customizer {
+            cust.refresh_presets_if_changed();
         }
     }
 
@@ -334,8 +363,8 @@ impl ViewerApp {
 
     fn open_dialog(&mut self, ctx: &egui::Context) {
         let picked = rfd::FileDialog::new()
-            .set_title("Apri modello")
-            .add_filter("Modelli (OpenSCAD, STL)", &["scad", "stl"])
+            .set_title("Open model")
+            .add_filter("Models (OpenSCAD, STL)", &["scad", "stl"])
             .add_filter("OpenSCAD", &["scad"])
             .add_filter("STL", &["stl"])
             .pick_file();
@@ -350,9 +379,9 @@ impl ViewerApp {
         };
         let Some(solid) = &doc.solid else {
             self.status = Status::Error(if doc.is_planar {
-                "Il risultato è 2D: l'STL richiede un oggetto 3D".into()
+                "Result is 2D: STL requires a 3D object".into()
             } else {
-                "Niente da esportare".into()
+                "Nothing to export".into()
             });
             return;
         };
@@ -360,9 +389,9 @@ impl ViewerApp {
             .path
             .file_stem()
             .map(|s| format!("{}.stl", s.to_string_lossy()))
-            .unwrap_or_else(|| "modello.stl".into());
+            .unwrap_or_else(|| "model.stl".into());
         let picked = rfd::FileDialog::new()
-            .set_title("Esporta STL")
+            .set_title("Export STL")
             .add_filter("STL", &["stl"])
             .set_file_name(default_name)
             .save_file();
@@ -370,8 +399,8 @@ impl ViewerApp {
             return;
         };
         self.status = match mesh_io::write_stl_file(solid, &path, format) {
-            Ok(()) => Status::Info(format!("Esportato {}", path.display())),
-            Err(err) => Status::Error(format!("Esportazione fallita: {err}")),
+            Ok(()) => Status::Info(format!("Exported {}", path.display())),
+            Err(err) => Status::Error(format!("Export failed: {err}")),
         };
     }
 
@@ -413,7 +442,7 @@ impl ViewerApp {
             ui.menu_button("File", |ui| {
                 let shortcut = ui.ctx().format_shortcut(&OPEN);
                 if ui
-                    .add(egui::Button::new("Apri…").shortcut_text(shortcut))
+                    .add(egui::Button::new("Open…").shortcut_text(shortcut))
                     .clicked()
                 {
                     self.open_dialog(ui.ctx());
@@ -422,7 +451,7 @@ impl ViewerApp {
                 if ui
                     .add_enabled(
                         self.document.is_some(),
-                        egui::Button::new("Ricarica").shortcut_text(shortcut),
+                        egui::Button::new("Reload").shortcut_text(shortcut),
                     )
                     .clicked()
                 {
@@ -434,32 +463,32 @@ impl ViewerApp {
                 if ui
                     .add_enabled(
                         has_solid,
-                        egui::Button::new("Esporta STL (binario)…").shortcut_text(shortcut),
+                        egui::Button::new("Export STL (binary)…").shortcut_text(shortcut),
                     )
                     .clicked()
                 {
                     self.export_dialog(StlFormat::Binary);
                 }
                 if ui
-                    .add_enabled(has_solid, egui::Button::new("Esporta STL (ASCII)…"))
+                    .add_enabled(has_solid, egui::Button::new("Export STL (ASCII)…"))
                     .clicked()
                 {
                     self.export_dialog(StlFormat::Ascii);
                 }
                 ui.separator();
-                if ui.button("Impostazioni…").clicked() {
+                if ui.button("Settings…").clicked() {
                     self.settings_open = true;
                 }
                 ui.separator();
-                if ui.button("Esci").clicked() {
+                if ui.button("Quit").clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
 
-            ui.menu_button("Vista", |ui| {
+            ui.menu_button("View", |ui| {
                 let shortcut = ui.ctx().format_shortcut(&FIT);
                 if ui
-                    .add(egui::Button::new("Adatta alla finestra").shortcut_text(shortcut))
+                    .add(egui::Button::new("Fit to view").shortcut_text(shortcut))
                     .clicked()
                 {
                     self.viewport.fit();
@@ -472,32 +501,76 @@ impl ViewerApp {
                 }
                 ui.separator();
                 let mut projection = self.viewport.projection();
-                ui.radio_value(&mut projection, Projection::Perspective, "Prospettiva");
-                ui.radio_value(&mut projection, Projection::Orthographic, "Ortogonale");
+                ui.radio_value(&mut projection, Projection::Perspective, "Perspective");
+                ui.radio_value(&mut projection, Projection::Orthographic, "Orthographic");
                 if projection != self.viewport.projection() {
                     self.viewport.set_projection(projection);
                 }
                 ui.separator();
                 let mut style = self.viewport.style();
-                ui.checkbox(&mut style.show_grid, "Griglia");
-                ui.checkbox(&mut style.show_axes, "Assi");
-                ui.checkbox(&mut style.show_edges, "Spigoli");
+                ui.checkbox(&mut style.show_grid, "Grid");
+                ui.checkbox(&mut style.show_axes, "Axes");
+                ui.checkbox(&mut style.show_edges, "Edges");
                 if style != self.viewport.style() {
                     self.viewport.set_style(style);
                 }
                 ui.separator();
+                ui.checkbox(&mut self.show_customizer, "Parameters");
                 ui.checkbox(&mut self.show_console, "Console");
             });
         });
     }
 
+    fn customizer_panel(&mut self, ui: &mut egui::Ui) {
+        let Some(cust) = &mut self.customizer else {
+            return;
+        };
+        let event = cust.ui(ui);
+        self.handle_customizer_event(event);
+    }
+
+    fn handle_customizer_event(&mut self, event: CustomizerEvent) {
+        match event {
+            CustomizerEvent::None => {}
+            CustomizerEvent::Evaluate => {
+                if let Some(path) = self.document.as_ref().map(|d| d.path.clone()) {
+                    self.evaluate(&path);
+                }
+            }
+            CustomizerEvent::AppliedToFile { count, new_mtime } => {
+                if let Some(doc) = &mut self.document {
+                    for (path, seen) in &mut doc.dependencies {
+                        if *path == doc.path {
+                            *seen = new_mtime;
+                        }
+                    }
+                    // A change still inside the debounce window was not
+                    // rendered yet: render the file as it is now on disk.
+                    let path = doc.path.clone();
+                    self.evaluate(&path);
+                    self.status = Status::Info(format!(
+                        "Applied {count} parameter(s) to {}",
+                        file_name(&path)
+                    ));
+                }
+            }
+            CustomizerEvent::Status { is_error, message } => {
+                self.status = if is_error {
+                    Status::Error(message)
+                } else {
+                    Status::Info(message)
+                };
+            }
+        }
+    }
+
     fn model_panel(&self, ui: &mut egui::Ui) {
-        ui.heading("Modello");
+        ui.heading("Model");
         ui.add_space(4.0);
         let Some(doc) = &self.document else {
-            ui.label("Nessun modello caricato.");
+            ui.label("No model loaded.");
             ui.add_space(8.0);
-            ui.weak("Trascina un file .scad o .stl nella finestra oppure usa File → Apri.");
+            ui.weak("Drop a .scad or .stl file into the window or use File → Open.");
             return;
         };
 
@@ -511,16 +584,16 @@ impl ViewerApp {
                 ui.end_row();
                 if let Some(stats) = &doc.stats {
                     let size = stats.bounds.size();
-                    ui.label("Tipo");
+                    ui.label("Type");
                     ui.label(if doc.is_planar { "2D" } else { "3D" });
                     ui.end_row();
-                    ui.label("Triangoli");
+                    ui.label("Triangles");
                     ui.label(stats.triangles.to_string());
                     ui.end_row();
-                    ui.label("Vertici");
+                    ui.label("Vertices");
                     ui.label(stats.vertices.to_string());
                     ui.end_row();
-                    ui.label("Dimensioni");
+                    ui.label("Size");
                     ui.label(format!("{:.2} × {:.2} × {:.2} mm", size.x, size.y, size.z));
                     ui.end_row();
                     ui.label("Min");
@@ -534,15 +607,15 @@ impl ViewerApp {
                         ui.label(format!("{volume:.2} mm³"));
                         ui.end_row();
                     }
-                    ui.label("Superficie");
+                    ui.label("Surface");
                     ui.label(format!("{:.2} mm²", stats.area));
                     ui.end_row();
                 }
                 if let Some((eval, mesh)) = doc.timings {
-                    ui.label("Valutazione");
+                    ui.label("Evaluation");
                     ui.label(format!("{} ms", eval.as_millis()));
                     ui.end_row();
-                    ui.label("Geometria");
+                    ui.label("Geometry");
                     ui.label(format!("{} ms", mesh.as_millis()));
                     ui.end_row();
                 }
@@ -552,18 +625,18 @@ impl ViewerApp {
         ui.separator();
         if doc.kind == DocumentKind::Scad {
             ui.weak(
-                "Il modello si aggiorna da solo quando salvi il file (anche da un altro editor).",
+                "Reloads automatically when you save the file (including from another editor).",
             );
             ui.add_space(4.0);
         }
-        ui.weak("Sinistro: ruota · Destro/centrale o Maiusc: sposta · Rotella: zoom · Doppio clic o F: adatta");
+        ui.weak("Left: orbit · Right/middle or Shift: pan · Wheel: zoom · Double-click or F: fit");
     }
 
     fn console_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.strong("Console");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Pulisci").clicked() {
+                if ui.small_button("Clear").clicked() {
                     self.console.clear();
                 }
             });
@@ -575,7 +648,7 @@ impl ViewerApp {
             .stick_to_bottom(true)
             .show(ui, |ui| {
                 if self.console.is_empty() {
-                    ui.weak("Nessun messaggio.");
+                    ui.weak("No messages.");
                 }
                 for line in &self.console {
                     let color = match line.kind {
@@ -653,16 +726,34 @@ impl eframe::App for ViewerApp {
         self.handle_dropped_files(&ctx);
         self.handle_shortcuts(&ctx);
 
+        if self
+            .customizer
+            .as_mut()
+            .is_some_and(CustomizerState::take_due_evaluation)
+            && let Some(path) = self.document.as_ref().map(|d| d.path.clone())
+        {
+            self.evaluate(&path);
+        }
+
         // With vsync on, this presents exactly once per monitor refresh.
         if self.settings.frame_rate == FrameRate::Constant {
             ctx.request_repaint();
-        } else if self.document.is_some() {
-            // Keep watching files even when nothing else happens.
-            ctx.request_repaint_after(WATCH_INTERVAL);
+        } else {
+            let mut next_wake = self.document.is_some().then_some(WATCH_INTERVAL);
+            if let Some(delay) = self
+                .customizer
+                .as_ref()
+                .and_then(CustomizerState::pending_repaint_delay)
+            {
+                next_wake = Some(next_wake.map_or(delay, |w| w.min(delay)));
+            }
+            if let Some(delay) = next_wake {
+                ctx.request_repaint_after(delay);
+            }
         }
 
         let mut open = self.settings_open;
-        egui::Window::new("Impostazioni")
+        egui::Window::new("Settings")
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -684,6 +775,17 @@ impl eframe::App for ViewerApp {
         egui::Panel::left("model")
             .default_size(260.0)
             .show(ui, |ui| self.model_panel(ui));
+        if self.show_customizer && self.customizer.is_some() {
+            let panel = match self.settings.customizer_side {
+                PanelSide::Right => egui::Panel::right("parameters"),
+                PanelSide::Left => egui::Panel::left("parameters"),
+            };
+            panel
+                .resizable(true)
+                .default_size(320.0)
+                .min_size(240.0)
+                .show(ui, |ui| self.customizer_panel(ui));
+        }
 
         let render_state = self.render_state.clone();
         egui::CentralPanel::default()
@@ -692,7 +794,11 @@ impl eframe::App for ViewerApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Some(cust) = &self.customizer {
+            cust.persist_into(&mut self.persisted_customizer);
+        }
         eframe::set_value(storage, settings::STORAGE_KEY, &self.settings);
+        eframe::set_value(storage, customizer::STORAGE_KEY, &self.persisted_customizer);
     }
 }
 

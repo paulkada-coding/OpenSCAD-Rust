@@ -1,0 +1,1 @@
+{"parameters":[{"initial":4.0,"max":8.0,"min":0.0,"name":"dup","step":2.0,"type":"number"},{"initial":2.0,"max":5.0,"min":0.0,"name":"keep","step":1.0,"type":"number"}],"title":"param_cutoff_and_reassign"}

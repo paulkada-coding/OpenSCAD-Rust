@@ -1,0 +1,6 @@
+WARNING: Parameter "below": value -5 is below the declared minimum 0, adjusting minimum value in file param_number_warnings.scad, line 1
+WARNING: Parameter "above": value 25 is above the declared maximum 10, adjusting maximum value in file param_number_warnings.scad, line 2
+WARNING: Parameter "above_max_only": value 30 is above the declared maximum 20, adjusting maximum value in file param_number_warnings.scad, line 3
+WARNING: Parameter "reversed_bounds": value 5 is below the declared minimum 10, adjusting minimum value in file param_number_warnings.scad, line 4
+WARNING: Parameter "reversed_bounds": value 5 is above the declared maximum 2, adjusting maximum value in file param_number_warnings.scad, line 4
+WARNING: Parameter "large_warn": value 1.23457e+06 is above the declared maximum 0.25, adjusting maximum value in file param_number_warnings.scad, line 5

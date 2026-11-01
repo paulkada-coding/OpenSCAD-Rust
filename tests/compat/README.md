@@ -1,136 +1,136 @@
-# Corpus di compatibilità OpenSCAD
+# OpenSCAD Compatibility Corpus
 
-Casi di test piccoli e deterministici che confrontano il nostro motore (`scadr`) con
-**OpenSCAD Nightly 2026.10.22** (l'oracolo). Ogni caso viene eseguito con
-`<motore> -o <out>.csg <caso>.scad` e si confrontano due cose:
+Small, deterministic test cases that compare our engine (`scadr`) against
+**OpenSCAD Nightly 2026.10.22** (the test oracle). Each case is run with
+`<engine> -o <out>.csg <case>.scad` and two outputs are compared:
 
-1. i messaggi su stderr (`ECHO:`, `WARNING:`, `ERROR:`, `TRACE:`, `DEPRECATED:` …);
-2. il file CSG esportato (albero geometrico in forma testuale).
+1. stderr messages (`ECHO:`, `WARNING:`, `ERROR:`, `TRACE:`, `DEPRECATED:`, …);
+2. the exported CSG file (geometry tree in textual form).
 
-Il comportamento osservato è documentato in dettaglio in
+Observed behavior is documented in detail in
 [`docs/openscad-behavior.md`](../../docs/openscad-behavior.md).
 
-Il confronto della **geometria** renderizzata (export STL, metriche volume/area/box/vertici, esiti
-`EXACT` / `EQUIVALENT` / `FAIL`) ha un corpus separato di 100 casi in
-[`geometry/`](geometry/README.md), eseguito con `cargo run -p compat-runner -- --geometry`.
+Rendered **geometry** comparison (STL export, volume/area/bbox/vertex metrics,
+`EXACT` / `EQUIVALENT` / `FAIL` outcomes) has a separate 100-case corpus in
+[`geometry/`](geometry/README.md), executed via `cargo run -p compat-runner -- --geometry`.
 
-## Struttura
+## Layout
 
 ```
 tests/compat/
-  geometry/                        corpus di geometria (vedi geometry/README.md)
-  cases/<argomento>_<nome>.scad   un caso per file (solo i .scad al primo livello sono casi)
-  cases/lib/                       librerie di supporto per include/use (non sono casi)
-  cases/data/                      file dati per import()/surface() (non sono casi)
-  expected/<nome>.log              stderr normalizzato prodotto da OpenSCAD
-  expected/<nome>.csg              export CSG normalizzato prodotto da OpenSCAD
-                                   (ASSENTE se OpenSCAD non scrive il file, es. errori di parsing)
+  geometry/                        geometry corpus (see geometry/README.md)
+  cases/<topic>_<name>.scad        one case per file (only top-level .scad files are cases)
+  cases/lib/                       helper libraries for include/use (not cases)
+  cases/data/                      data files for import()/surface() (not cases)
+  expected/<name>.log              normalized stderr produced by OpenSCAD
+  expected/<name>.csg              normalized CSG export produced by OpenSCAD
+                                   (ABSENT if OpenSCAD writes no file, e.g. parse errors)
 ```
 
-Prefissi degli argomenti (215 casi):
+Topic prefixes (218 cases):
 
-| Prefisso | Casi | Contenuto |
+| Prefix | Cases | Coverage |
 |---|---|---|
-| `echo_` | 18 | formattazione di numeri, stringhe, vettori, range, funzioni, argomenti nominati, stampa delle espressioni |
-| `str_` | 8 | `str`, `chr`, `ord`, indicizzazione stringhe, escape |
-| `num_` | 9 | aritmetica, modulo, divisione per zero, `round`, `min`/`max`, interi grandi |
-| `trig_` | 4 | esattezza di sin/cos/tan, segno dello zero, funzioni inverse |
-| `op_` | 10 | operazioni su vettori/matrici, confronti, verità, bitwise, operazioni non definite |
-| `index_` / `range_` | 4 / 7 | indicizzazione, `.x/.y/.z`, range con passo decimale, range inversi, limiti |
-| `lc_` / `let_` / `expr_` | 5 / 2 / 1 | list comprehension, `let`, `echo`/`assert` come espressioni |
-| `scope_` / `special_` | 10 / 9 | riassegnazione, ordine di valutazione, variabili `$`, `$children`, `parent_module` |
-| `include_` / `use_` | 4 / 2 | semantica di `include` e `use` |
-| `func_` / `module_` | 13 / 9 | funzioni, letterali funzione, argomenti, ricorsione, moduli, `children()` |
-| `builtin_` | 15 | funzioni builtin (`len`, `concat`, `lookup`, `search`, `rands`, `is_*`, oggetti…) |
-| `err_` / `lex_` | 16 / 3 | `assert`, errori di parsing, commenti, identificatori, moduli deprecati |
-| `csg_` | 56 | export CSG di ogni modulo builtin, trasformazioni, modificatori, formattazione numeri |
-| `model_` | 10 | modelli realistici multi-funzione (scatola parametrica, ingranaggio, staffa, vaso…) |
+| `echo_` | 18 | number, string, vector, range, function, named-argument formatting, expression printing |
+| `str_` | 8 | `str`, `chr`, `ord`, string indexing, escapes |
+| `num_` | 9 | arithmetic, modulo, division by zero, `round`, `min`/`max`, large integers |
+| `trig_` | 4 | exact sin/cos/tan values, signed zeros, inverse functions |
+| `op_` | 10 | vector/matrix operations, comparisons, truthiness, bitwise, undefined operations |
+| `index_` / `range_` | 4 / 7 | indexing, `.x/.y/.z`, decimal-step ranges, reversed ranges, limits |
+| `lc_` / `let_` / `expr_` | 5 / 2 / 1 | list comprehensions, `let`, `echo`/`assert` as expressions |
+| `scope_` / `special_` | 10 / 9 | reassignment, evaluation order, `$` variables, `$children`, `parent_module` |
+| `include_` / `use_` | 4 / 2 | `include` and `use` semantics |
+| `func_` / `module_` | 13 / 9 | functions, function literals, arguments, recursion, modules, `children()` |
+| `builtin_` | 15 | built-in functions (`len`, `concat`, `lookup`, `search`, `rands`, `is_*`, objects…) |
+| `err_` / `lex_` | 16 / 4 | `assert`, parse errors, comments, identifiers, deprecated modules, UTF-8 byte order mark |
+| `csg_` | 56 | CSG export of every built-in module, transforms, modifiers, number formatting |
+| `model_` | 12 | multi-feature real-world models (parametric box, gear, bracket, vase, `porta_carte`, `separatore`…) |
 
-### Direttiva `compat-args`
+### `compat-args` directive
 
-Un caso può chiedere argomenti extra da riga di comando (passati sia a OpenSCAD sia al nostro
-motore) con un commento in una delle prime 5 righe:
+A case may request extra command-line arguments (passed both to OpenSCAD and to our engine)
+with a comment in one of the first 5 lines:
 
 ```openscad
 // compat-args: --enable=object-function
 ```
 
-## Regole di normalizzazione
+## Normalization rules
 
-Applicate in modo identico all'output di OpenSCAD (quando si generano gli expected) e a quello
-del nostro motore (implementazione: `tools/compat-runner/src/normalize.rs`).
+Applied identically to OpenSCAD's output (when generating expected files) and to our engine's
+output (implementation: `tools/compat-runner/src/normalize.rs`).
 
 **Log (stderr):**
 
-1. decodifica UTF-8 (lossy); `\r\n` → `\n` (OpenSCAD su Windows scrive CRLF);
-2. il percorso assoluto della cartella `cases` viene rimosso (con `\` o `/` finale), quindi
-   `Can't parse file 'C:\...\cases\x.scad'!` diventa `Can't parse file 'x.scad'!`;
-   i percorsi in `in file x.scad, line N` sono già relativi alla cartella del file principale;
-3. si scartano le righe "rumore" (dopo aver tolto gli spazi iniziali iniziano con):
+1. UTF-8 decoding (lossy); `\r\n` → `\n` (OpenSCAD on Windows writes CRLF);
+2. the absolute path of the `cases` directory is stripped (with trailing `\` or `/`), so
+   `Can't parse file 'C:\...\cases\x.scad'!` becomes `Can't parse file 'x.scad'!`;
+   paths in `in file x.scad, line N` are already relative to the main file's directory;
+3. "noise" lines are discarded (after trimming leading spaces, starting with):
    `Fontconfig `, `Geometries in cache:`, `Geometry cache size in bytes:`, `CGAL Polyhedrons in cache:`,
    `CGAL cache size in bytes:`, `Total rendering time:`, `Top level object is`, `Convex:`, `Facets:`,
    `Vertices:`, `Volumes:`, `Halfedges:`, `Edges:`, `Halffacets:`, `Contours:`, `Rendering Polygon Mesh`,
    `Simple:`, `Bounding box:`, `Current top level object is`, `Parsing design`, `Compiling design`,
    `Rendering finished`, `Normalized tree`, `Compile and preview finished`
-   (con export `.csg` OpenSCAD non stampa statistiche; in pratica si vedono solo le righe `Fontconfig error`);
-4. si tengono solo i messaggi: righe che iniziano con `ECHO:`, `WARNING:`, `ERROR:`, `TRACE:`,
+   (with `.csg` export OpenSCAD does not print render statistics; in practice only `Fontconfig error` lines appear);
+4. only message lines are kept: lines starting with `ECHO:`, `WARNING:`, `ERROR:`, `TRACE:`,
    `DEPRECATED:`, `FONT-WARNING:`, `EXPORT-WARNING:`, `EXPORT-ERROR:`, `UI-WARNING:`,
-   `Can't parse file`, **più le loro righe di continuazione** (es. `echo("a\nb")` produce due
-   righe; il warning dei colori ha una seconda riga `For a list of valid color names…`).
-   Le righe prima del primo messaggio vengono scartate;
-5. nelle righe `TRACE:` il numero in `*** Excluding 15373 frames ***` diventa `N`
-   (dipende dalla dimensione dello stack);
-6. si tolgono le righe vuote finali; il file termina con `\n` (vuoto se non ci sono messaggi).
+   `Can't parse file`, **plus their continuation lines** (e.g. `echo("a\nb")` produces two
+   lines; the invalid-color warning has a second line `For a list of valid color names…`).
+   Lines before the first message are discarded;
+5. in `TRACE:` lines, the frame count in `*** Excluding 15373 frames ***` becomes `N`
+   (it depends on stack size);
+6. trailing blank lines are stripped; the file ends with `\n` (empty if there are no messages).
 
-Non si tolgono spazi finali: `echo()` produce `ECHO: ` con uno spazio.
+Trailing spaces on lines are preserved: `echo()` outputs `ECHO: ` with a trailing space.
 
 **CSG:**
 
-1. UTF-8 (lossy), `\r\n` → `\n`; percorso assoluto della cartella `cases` rimosso;
-2. `timestamp = <intero>` (in `import()`/`surface()`, è la data di modifica del file) → `timestamp = 0`;
-3. si tolgono le righe vuote finali (OpenSCAD termina sempre con una riga vuota extra) e il file
-   termina con `\n`; un albero vuoto produce un file vuoto.
+1. UTF-8 (lossy), `\r\n` → `\n`; absolute path of the `cases` directory stripped;
+2. `timestamp = <integer>` (in `import()`/`surface()`, the file modification timestamp) → `timestamp = 0`;
+3. trailing blank lines are stripped (OpenSCAD always ends with an extra blank line) and the file
+   ends with `\n`; an empty tree produces an empty file.
 
-Se OpenSCAD non produce il file CSG (errore di parsing: exit code 1), non esiste `expected/<nome>.csg`
-e il caso fallisce se il nostro motore ne scrive uno. Il codice di uscita in sé non viene confrontato.
+If OpenSCAD writes no CSG file (parse error: exit code 1), `expected/<name>.csg` does not exist
+and the case fails if our engine writes one. The exit code itself is not compared here.
 
-## Come eseguire
+## Running
 
 ```powershell
-$env:CARGO_TARGET_DIR = 'C:\Software\3D Openscad\target\agent-compat'   # opzionale
-cargo run -p compat-runner                                  # tutti i casi con target\debug\scadr.exe
-cargo run -p compat-runner -- --filter csg_ --verbose       # solo i casi che contengono "csg_", con diff
-cargo run -p compat-runner -- --engine path\to\scadr.exe    # motore in un altro percorso
+$env:CARGO_TARGET_DIR = 'C:\Software\3D Openscad\target\agent-compat'   # optional
+cargo run -p compat-runner                                  # all cases with target\debug\scadr.exe
+cargo run -p compat-runner -- --filter csg_ --verbose       # only cases containing "csg_", with diffs
+cargo run -p compat-runner -- --engine path\to\scadr.exe    # custom engine path
 cargo run -p compat-runner -- --help
 ```
 
-Opzioni: `--engine <path>`, `--openscad <path>`, `--update-expected`, `--filter <substr>` (ripetibile),
-`-v/--verbose` (diff unificati dei fallimenti), `-j/--jobs <N>`, `--timeout <secondi>` (default 30),
-`--cases <dir>`, `--expected <dir>`, `--out-dir <dir>` (default `target\compat-out`: lì finiscono
-l'output grezzo e il log normalizzato del nostro motore, utile per il debug).
+Options: `--engine <path>`, `--openscad <path>`, `--update-expected`, `--filter <substr>` (repeatable),
+`-v/--verbose` (unified diffs for failures), `-j/--jobs <N>`, `--timeout <secs>` (default 30),
+`--cases <dir>`, `--expected <dir>`, `--out-dir <dir>` (default `target\compat-out`: raw output
+and normalized engine logs are saved there for debugging).
 
-Esito per caso: `PASS`, `FAIL` (log e/o CSG diversi), `ERROR` (impossibile avviare il motore),
-`TIMEOUT`, `SKIP` (motore mancante o expected assente). Exit code 0 solo se tutti i casi passano.
-Se `scadr` non esiste ancora, tutti i casi risultano `SKIP` con un messaggio chiaro (exit code 1).
+Per-case outcome: `PASS`, `FAIL` (log and/or CSG differ), `ERROR` (cannot launch engine),
+`TIMEOUT`, `SKIP` (engine missing or expected file absent). Exit code 0 only if every case passes.
+If `scadr` has not been built yet, all cases report `SKIP` with a clear message (exit code 1).
 
-Controllo di sanità del runner: usando OpenSCAD stesso come motore si deve ottenere il 100%:
+Runner sanity check: passing OpenSCAD itself as the engine must give 100%:
 
 ```powershell
 cargo run -p compat-runner -- --engine 'C:\Program Files\OpenSCAD (Nightly)\openscad.exe'
 ```
 
-## Come rigenerare gli expected
+## Regenerating expected files
 
 ```powershell
 cargo run -p compat-runner -- --update-expected
-# oppure con un altro binario:
+# or with a different binary:
 cargo run -p compat-runner -- --update-expected --openscad 'C:\path\to\openscad.exe'
 ```
 
-Il comando riesegue OpenSCAD su ogni caso, applica la normalizzazione e riscrive solo i file
-cambiati (riporta `new` / `updated` / `unchanged`). Rieseguirlo senza modifiche deve dare
-`0 changed`. Per aggiungere un caso: creare `cases/<argomento>_<nome>.scad`, poi
-`--update-expected --filter <nome>` e controllare a mano gli expected prima del commit.
+This re-runs OpenSCAD on every case, applies normalization, and rewrites only changed files
+(reporting `new` / `updated` / `unchanged`). Re-running without changes must report
+`0 changed`. To add a case: create `cases/<topic>_<name>.scad`, then run
+`--update-expected --filter <name>` and inspect the expected files manually before committing.
 
-Regole per i casi: niente librerie esterne, niente `rands()` senza seme, niente dipendenze
-dall'ora o dalla dimensione dello stack (es. limite di ricorsione non in coda), file piccoli e veloci.
+Case guidelines: no external libraries, no unseeded `rands()`, no wall-clock or stack-size
+dependencies (e.g. non-tail recursion limits), keep files small and fast.

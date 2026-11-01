@@ -57,6 +57,10 @@ GEOMETRY MODE:
     --ignore-log          do not compare the messages (stderr)
     --strict              count EQUIVALENT as a failure in the exit code
 
+PARAMS MODE:
+    --params              export Customizer parameters (-o <name>.param) on
+                          tests/compat/params and compare exact .param JSON + .log
+
 Exit code: 0 if every case passes (geometry: EXACT or EQUIVALENT; or every update
 succeeds), 1 otherwise, 2 on usage errors.
 ";
@@ -73,6 +77,7 @@ struct Options {
     expected_dir: PathBuf,
     out_dir: PathBuf,
     geometry: bool,
+    params: bool,
     tolerances: geometry::Tolerances,
     ignore_log: bool,
     strict: bool,
@@ -105,6 +110,7 @@ fn default_options() -> Options {
         expected_dir: root.join("tests").join("compat").join("expected"),
         out_dir: root.join("target").join("compat-out"),
         geometry: false,
+        params: false,
         tolerances: geometry::Tolerances::default(),
         ignore_log: false,
         strict: false,
@@ -137,6 +143,7 @@ fn parse_args() -> Result<Options, String> {
         };
         match a.as_str() {
             "--geometry" => o.geometry = true,
+            "--params" => o.params = true,
             "--ignore-log" => o.ignore_log = true,
             "--strict" => o.strict = true,
             "--tol-volume" => {
@@ -174,8 +181,13 @@ fn parse_args() -> Result<Options, String> {
             other => return Err(format!("unknown argument: {other}")),
         }
     }
+    if o.geometry && o.params {
+        return Err("--geometry and --params cannot be used together".into());
+    }
     let corpus = if o.geometry {
         root.join("tests").join("compat").join("geometry")
+    } else if o.params {
+        root.join("tests").join("compat").join("params")
     } else {
         root.join("tests").join("compat")
     };
@@ -345,8 +357,18 @@ fn read_expected(path: &Path) -> Option<String> {
         .map(|b| String::from_utf8_lossy(&b).replace("\r\n", "\n"))
 }
 
+fn normalize_exported(o: &Options, raw: &[u8], case_dir: &Path) -> String {
+    if o.params {
+        String::from_utf8_lossy(raw).replace("\r\n", "\n")
+    } else {
+        normalize::normalize_csg(raw, case_dir)
+    }
+}
+
 fn check_case(o: &Options, case: &Case) -> Outcome {
     let start = Instant::now();
+    let ext = if o.params { "param" } else { "csg" };
+    let ext_upper = if o.params { "PARAM" } else { "CSG" };
     let mut outcome = Outcome {
         name: case.name.clone(),
         status: Status::Pass,
@@ -355,16 +377,19 @@ fn check_case(o: &Options, case: &Case) -> Outcome {
         elapsed: Duration::ZERO,
     };
     let exp_log_path = o.expected_dir.join(format!("{}.log", case.name));
-    let exp_csg_path = o.expected_dir.join(format!("{}.csg", case.name));
+    let exp_out_path = o.expected_dir.join(format!("{}.{ext}", case.name));
     let Some(exp_log) = read_expected(&exp_log_path) else {
         outcome.status = Status::Skip;
         outcome.detail = "no expected .log (run --update-expected)".into();
         return outcome;
     };
-    let exp_csg = read_expected(&exp_csg_path);
+    let exp_out = read_expected(&exp_out_path);
     let case_dir = case.path.parent().unwrap_or(Path::new("."));
-    let csg_path = o.out_dir.join("engine").join(format!("{}.csg", case.name));
-    let run = match run_binary(&o.engine, case, &csg_path, &[], o.timeout) {
+    let out_path = o
+        .out_dir
+        .join("engine")
+        .join(format!("{}.{ext}", case.name));
+    let run = match run_binary(&o.engine, case, &out_path, &[], o.timeout) {
         Ok(r) => r,
         Err(e) => {
             outcome.status = Status::Error;
@@ -380,15 +405,15 @@ fn check_case(o: &Options, case: &Case) -> Outcome {
         return outcome;
     }
     let act_log = normalize::normalize_log(&run.stderr, case_dir);
-    let act_csg = run
+    let act_out = run
         .output
         .as_deref()
-        .map(|b| normalize::normalize_csg(b, case_dir));
+        .map(|b| normalize_exported(o, b, case_dir));
     // Save the normalized actual output next to the raw output for inspection.
     let norm_dir = o.out_dir.join("engine");
     let _ = std::fs::write(norm_dir.join(format!("{}.log", case.name)), &act_log);
     let mut problems = Vec::new();
-    if act_log != exp_log {
+    if !o.ignore_log && act_log != exp_log {
         problems.push("log differs".to_string());
         outcome.diffs.push_str(&diff::unified_diff(
             &exp_log,
@@ -397,18 +422,18 @@ fn check_case(o: &Options, case: &Case) -> Outcome {
             "actual log",
         ));
     }
-    match (&exp_csg, &act_csg) {
+    match (&exp_out, &act_out) {
         (Some(e), Some(a)) if e != a => {
-            problems.push("csg differs".to_string());
+            problems.push(format!("{ext} differs"));
             outcome.diffs.push_str(&diff::unified_diff(
                 e,
                 a,
-                &format!("expected/{}.csg", case.name),
-                "actual csg",
+                &format!("expected/{}.{ext}", case.name),
+                &format!("actual {ext}"),
             ));
         }
-        (Some(_), None) => problems.push("no CSG written".to_string()),
-        (None, Some(_)) => problems.push("CSG written but OpenSCAD writes none".to_string()),
+        (Some(_), None) => problems.push(format!("no {ext_upper} written")),
+        (None, Some(_)) => problems.push(format!("{ext_upper} written but OpenSCAD writes none")),
         _ => {}
     }
     if !problems.is_empty() {
@@ -423,6 +448,7 @@ fn check_case(o: &Options, case: &Case) -> Outcome {
 
 fn update_case(o: &Options, case: &Case) -> Outcome {
     let start = Instant::now();
+    let ext = if o.params { "param" } else { "csg" };
     let mut outcome = Outcome {
         name: case.name.clone(),
         status: Status::Pass,
@@ -431,11 +457,11 @@ fn update_case(o: &Options, case: &Case) -> Outcome {
         elapsed: Duration::ZERO,
     };
     let case_dir = case.path.parent().unwrap_or(Path::new("."));
-    let csg_path = o
+    let out_path = o
         .out_dir
         .join("openscad")
-        .join(format!("{}.csg", case.name));
-    let run = match run_binary(&o.openscad, case, &csg_path, &[], o.timeout) {
+        .join(format!("{}.{ext}", case.name));
+    let run = match run_binary(&o.openscad, case, &out_path, &[], o.timeout) {
         Ok(r) => r,
         Err(e) => {
             outcome.status = Status::Error;
@@ -450,12 +476,12 @@ fn update_case(o: &Options, case: &Case) -> Outcome {
         return outcome;
     }
     let log = normalize::normalize_log(&run.stderr, case_dir);
-    let csg = run
+    let exported = run
         .output
         .as_deref()
-        .map(|b| normalize::normalize_csg(b, case_dir));
+        .map(|b| normalize_exported(o, b, case_dir));
     let log_path = o.expected_dir.join(format!("{}.log", case.name));
-    let csg_path = o.expected_dir.join(format!("{}.csg", case.name));
+    let exp_path = o.expected_dir.join(format!("{}.{ext}", case.name));
     let mut changes = Vec::new();
     match write_if_changed(&log_path, &log) {
         Ok(Some(c)) => changes.push(format!("log {c}")),
@@ -466,9 +492,9 @@ fn update_case(o: &Options, case: &Case) -> Outcome {
             return outcome;
         }
     }
-    match &csg {
-        Some(csg) => match write_if_changed(&csg_path, csg) {
-            Ok(Some(c)) => changes.push(format!("csg {c}")),
+    match &exported {
+        Some(content) => match write_if_changed(&exp_path, content) {
+            Ok(Some(c)) => changes.push(format!("{ext} {c}")),
             Ok(None) => {}
             Err(e) => {
                 outcome.status = Status::Error;
@@ -477,9 +503,9 @@ fn update_case(o: &Options, case: &Case) -> Outcome {
             }
         },
         None => {
-            if csg_path.exists() {
-                let _ = std::fs::remove_file(&csg_path);
-                changes.push("csg removed (OpenSCAD wrote none)".into());
+            if exp_path.exists() {
+                let _ = std::fs::remove_file(&exp_path);
+                changes.push(format!("{ext} removed (OpenSCAD wrote none)"));
             }
         }
     }

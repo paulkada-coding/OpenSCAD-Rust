@@ -1,0 +1,3 @@
+WARNING: Parameter "num_range": value 25 is above the declared maximum 20, adjusting maximum value in file param_cli_preset.scad, line 2
+ECHO: 25, 10, false, "ABCD", "b", [-5, 2.5, 5], 99
+WARNING: Parameter "num_range": value 25 is above the declared maximum 20, adjusting maximum value in file param_cli_preset.scad, line 2

@@ -33,8 +33,21 @@ pub struct SyntaxWarning {
 const MAX_ESCAPE_WARNINGS_PER_STRING: usize = 5;
 
 pub fn lex(text: &str) -> Vec<Token<'_>> {
-    let mut lexer = SyntaxKind::lexer(text);
     let mut tokens = Vec::new();
+    // OpenSCAD accepts a leading UTF-8 byte order mark (Notepad writes one):
+    // keep it as trivia so the tree still reproduces the file exactly.
+    let body = match text.strip_prefix('\u{feff}') {
+        Some(rest) => {
+            tokens.push(Token {
+                kind: SyntaxKind::WHITESPACE,
+                text: &text[..text.len() - rest.len()],
+            });
+            rest
+        }
+        None => text,
+    };
+    let base = text.len() - body.len();
+    let mut lexer = SyntaxKind::lexer(body);
     while let Some(result) = lexer.next() {
         let mut kind = result.unwrap_or(SyntaxKind::ERROR_TOKEN);
         let slice = lexer.slice();
@@ -53,7 +66,7 @@ pub fn lex(text: &str) -> Vec<Token<'_>> {
             } = last
         {
             let start = prev.as_ptr() as usize - text.as_ptr() as usize;
-            *prev = &text[start..lexer.span().end];
+            *prev = &text[start..base + lexer.span().end];
             continue;
         }
         tokens.push(Token { kind, text: slice });
@@ -108,6 +121,12 @@ pub(crate) fn collect_warnings(tokens: &[Token<'_>]) -> Vec<SyntaxWarning> {
         offset += token.text.len();
     }
     warnings
+}
+
+/// Decodes an OpenSCAD string literal (`"..."`), matching the lexer's escape
+/// rules (`\n`, `\t`, `\r`, `\\`, `\"`, `\xNN`, `\uNNNN`, `\UNNNNNN`, NUL→space).
+pub fn unescape_string_literal(quoted: &str) -> String {
+    decode_string_literal(quoted, 0, |_| {})
 }
 
 /// Decodes an OpenSCAD string literal (`"..."`), invoking `on_bad_escape` for

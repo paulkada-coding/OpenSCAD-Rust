@@ -116,7 +116,7 @@ impl Parser<'_> {
         if self.eat(kind) {
             true
         } else {
-            self.error(format!("atteso {what}"));
+            self.error(format!("expected {what}"));
             false
         }
     }
@@ -163,9 +163,9 @@ impl Parser<'_> {
             Some(UNTERMINATED_COMMENT) => Some(UnterminatedKind::Comment),
             _ => None,
         };
-        let found = next.map_or_else(|| "fine del file".to_string(), |t| format!("'{}'", t.text));
+        let found = next.map_or_else(|| "end of file".to_string(), |t| format!("'{}'", t.text));
         self.errors.push(SyntaxError {
-            message: format!("{}, trovato {found}", message.into()),
+            message: format!("{}, found {found}", message.into()),
             range: self.current_range(),
             unterminated,
         });
@@ -187,7 +187,7 @@ impl Parser<'_> {
         self.builder.start_node(SOURCE_FILE.into());
         while !self.at_eof() {
             if self.at(R_BRACE) {
-                self.error_bump("'}' senza '{' corrispondente");
+                self.error_bump("unmatched '}'");
                 continue;
             }
             self.statement();
@@ -224,7 +224,7 @@ impl Parser<'_> {
 
     /// Skips tokens until something that can start or end a statement.
     fn recover_statement(&mut self) {
-        self.error("attesa un'istruzione");
+        self.error("expected a statement");
         self.start(ERROR);
         loop {
             if self.at_eof() || self.at(R_BRACE) {
@@ -263,10 +263,10 @@ impl Parser<'_> {
     fn module_def(&mut self) {
         self.start(MODULE_DEF);
         self.bump(); // 'module'
-        self.expect(IDENT, "il nome del modulo");
+        self.expect(IDENT, "module name");
         self.param_list();
         if self.at_eof() {
-            self.error("atteso il corpo del modulo");
+            self.error("expected module body");
         } else {
             self.statement();
         }
@@ -276,7 +276,7 @@ impl Parser<'_> {
     fn function_def(&mut self) {
         self.start(FUNCTION_DEF);
         self.bump(); // 'function'
-        self.expect(IDENT, "il nome della funzione");
+        self.expect(IDENT, "function name");
         self.param_list();
         self.expect(EQ, "'='");
         self.expr();
@@ -299,7 +299,7 @@ impl Parser<'_> {
                 }
                 self.finish();
             } else {
-                self.error_bump("atteso il nome di un parametro");
+                self.error_bump("expected parameter name");
                 if self.at_any(&[SEMI, L_BRACE, EQ]) {
                     break;
                 }
@@ -337,7 +337,7 @@ impl Parser<'_> {
             self.start_at(checkpoint, MODULE_CALL);
             self.finish();
         } else {
-            self.error("atteso il nome di un modulo");
+            self.error("expected module name");
             self.start_at(checkpoint, ERROR);
             self.finish();
         }
@@ -348,7 +348,7 @@ impl Parser<'_> {
             SEMI => self.bump(),
             L_BRACE => self.block(),
             kind if INSTANTIATION_START.contains(&kind) => self.instantiation(),
-            _ => self.error("atteso ';', '{' o un modulo"),
+            _ => self.error("expected ';', '{', or module instantiation"),
         }
     }
 
@@ -543,7 +543,7 @@ impl Parser<'_> {
                 DOT => {
                     self.start_at(checkpoint, MEMBER_EXPR);
                     self.bump();
-                    self.expect(IDENT, "il nome di un membro");
+                    self.expect(IDENT, "member name");
                     self.finish();
                 }
                 _ => break,
@@ -572,9 +572,9 @@ impl Parser<'_> {
             }
             L_BRACK => self.vector_or_range(),
             SEMI | COMMA | R_PAREN | R_BRACK | R_BRACE => {
-                self.error("attesa un'espressione");
+                self.error("expected expression");
             }
-            _ => self.error_bump("attesa un'espressione"),
+            _ => self.error_bump("expected expression"),
         }
     }
 

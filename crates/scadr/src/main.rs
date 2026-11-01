@@ -19,7 +19,7 @@ use mesher::{RenderOptions, Shape};
 use scad_eval::{EvalOptions, Evaluator, Level, Message, default_library_paths};
 use scad_syntax::TextRange;
 
-const USAGE: &str = "uso: scadr [-o output.csg|.echo|.stl|.off|-] [--export-format asciistl|binstl|stl|off|csg|echo] [-L dir]... [-D var=expr]... [--enable=feature]... input.scad";
+const USAGE: &str = "usage: scadr [-o output.csg|.echo|.param|.stl|.off|-] [--export-format asciistl|binstl|stl|off|csg|echo|param] [-p file.json] [-P set_name] [-L dir]... [-D var=expr]... [--enable=feature]... input.scad";
 
 /// Every output suffix / `--export-format` value OpenSCAD accepts.
 const OPENSCAD_FORMATS: &[&str] = &[
@@ -32,6 +32,7 @@ const OPENSCAD_FORMATS: &[&str] = &[
 enum ExportFormat {
     Csg,
     Echo,
+    Param,
     Stl(StlFormat),
     Off,
 }
@@ -43,6 +44,7 @@ impl ExportFormat {
         Ok(match name {
             "csg" => Self::Csg,
             "echo" => Self::Echo,
+            "param" => Self::Param,
             // Plain "stl" is ASCII, like OpenSCAD, so scadr is a drop-in
             // replacement in existing scripts.
             "stl" | "asciistl" => Self::Stl(StlFormat::Ascii),
@@ -61,6 +63,8 @@ struct Options {
     input: PathBuf,
     output: Option<PathBuf>,
     export_format: Option<String>,
+    preset_file: Option<PathBuf>,
+    preset_name: Option<String>,
     library_paths: Vec<PathBuf>,
     defines: Vec<(String, String)>,
     object_function: bool,
@@ -90,10 +94,10 @@ fn enable_feature(
 fn parse_define(raw: &str) -> Result<(String, String), String> {
     let (name, expr) = raw
         .split_once('=')
-        .ok_or_else(|| format!("-D richiede 'nome=espressione', trovato '{raw}'"))?;
+        .ok_or_else(|| format!("-D expects 'name=expression', got '{raw}'"))?;
     let name = name.trim();
     if name.is_empty() {
-        return Err(format!("-D nome variabile vuoto in '{raw}'"));
+        return Err(format!("-D empty variable name in '{raw}'"));
     }
     Ok((name.to_string(), expr.trim().to_string()))
 }
@@ -102,6 +106,8 @@ fn parse_args() -> Result<Options, String> {
     let mut input = None;
     let mut output = None;
     let mut export_format = None;
+    let mut preset_file = None;
+    let mut preset_name = None;
     let mut library_paths = Vec::new();
     let mut defines = Vec::new();
     let mut object_function = false;
@@ -111,19 +117,28 @@ fn parse_args() -> Result<Options, String> {
     while let Some(arg) = args.next() {
         let text = arg.to_string_lossy();
         match text.as_ref() {
-            "-o" => output = Some(PathBuf::from(args.next().ok_or("-o richiede un file")?)),
+            "-o" => output = Some(PathBuf::from(args.next().ok_or("-o requires a file")?)),
+            "-p" => {
+                preset_file = Some(PathBuf::from(args.next().ok_or("-p requires a file")?));
+            }
+            "-P" => {
+                preset_name = Some(
+                    args.next()
+                        .ok_or("-P requires a parameter set name")?
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
             "-L" => {
-                library_paths.push(PathBuf::from(
-                    args.next().ok_or("-L richiede una cartella")?,
-                ));
+                library_paths.push(PathBuf::from(args.next().ok_or("-L requires a directory")?));
             }
             "-D" => {
-                let raw = args.next().ok_or("-D richiede 'nome=espressione'")?;
+                let raw = args.next().ok_or("-D requires 'name=expression'")?;
                 defines.push(parse_define(&raw.to_string_lossy())?);
             }
             "-h" | "--help" => return Err(USAGE.into()),
             "--enable" => {
-                let feat = args.next().ok_or("--enable richiede una feature")?;
+                let feat = args.next().ok_or("--enable requires a feature")?;
                 enable_feature(
                     &feat.to_string_lossy(),
                     &mut object_function,
@@ -132,12 +147,12 @@ fn parse_args() -> Result<Options, String> {
                 );
             }
             "--export-format" => {
-                let fmt = args.next().ok_or("--export-format richiede un formato")?;
+                let fmt = args.next().ok_or("--export-format requires a format")?;
                 export_format = Some(fmt.to_string_lossy().into_owned());
             }
             // Accepted for command-line compatibility; we always use Manifold.
             "--backend" => {
-                args.next().ok_or("--backend richiede un valore")?;
+                args.next().ok_or("--backend requires a value")?;
             }
             flag if flag.starts_with("--backend=") => {}
             flag if flag.starts_with("--export-format=") => {
@@ -155,6 +170,12 @@ fn parse_args() -> Result<Options, String> {
             flag if flag.starts_with("--libdir=") => {
                 library_paths.push(PathBuf::from(&flag["--libdir=".len()..]));
             }
+            flag if flag.starts_with("-p") && flag.len() > 2 => {
+                preset_file = Some(PathBuf::from(&flag[2..]));
+            }
+            flag if flag.starts_with("-P") && flag.len() > 2 => {
+                preset_name = Some(flag[2..].to_string());
+            }
             flag if flag.starts_with("-L") && flag.len() > 2 => {
                 library_paths.push(PathBuf::from(&flag[2..]));
             }
@@ -163,7 +184,7 @@ fn parse_args() -> Result<Options, String> {
             }
             // `-o -` writes to stdout.
             flag if flag.starts_with('-') && flag != "-" => {
-                return Err(format!("opzione sconosciuta: {flag}"));
+                return Err(format!("unknown option: {flag}"));
             }
             _ => input = Some(PathBuf::from(&arg)),
         }
@@ -177,6 +198,8 @@ fn parse_args() -> Result<Options, String> {
         input: input.ok_or(USAGE)?,
         output,
         export_format,
+        preset_file,
+        preset_name,
         library_paths,
         defines,
         object_function,
@@ -267,12 +290,60 @@ fn main() -> ExitCode {
     let echo_mode = format == Some(ExportFormat::Echo);
     let geometry_mode = format.is_some_and(ExportFormat::is_geometry);
     let mut log_buf = String::new();
+    let input_file_name = options
+        .input
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| options.input.display().to_string());
 
-    // `$preview` is true for CSG / ECHO export and false for a full render,
-    // like OpenSCAD.
+    let mut effective_defines = options.defines.clone();
+    let mut param_source_text = text.clone();
+    if let (Some(preset_path), Some(preset_name)) = (&options.preset_file, &options.preset_name)
+        && scad_syntax::parse(&text).errors().is_empty()
+    {
+        let extracted = scad_customizer::extract_parameters_with_defines(&text, &options.defines);
+        for warning in &extracted.warnings {
+            emit_raw(
+                &warning.format_openscad(&input_file_name),
+                echo_mode,
+                &mut log_buf,
+            );
+        }
+        match scad_customizer::read_preset_file(preset_path) {
+            Ok(preset_file) => {
+                let overrides = scad_customizer::resolve_preset_overrides(
+                    &preset_file,
+                    preset_name,
+                    &extracted.parameters,
+                );
+                if !overrides.is_empty() {
+                    let literal_pairs: Vec<(String, String)> = overrides
+                        .iter()
+                        .map(|(name, val)| (name.clone(), val.to_scad_literal()))
+                        .collect();
+                    let edit_refs: Vec<(&str, &str)> = literal_pairs
+                        .iter()
+                        .map(|(n, lit)| (n.as_str(), lit.as_str()))
+                        .collect();
+                    if let Ok(rewritten) =
+                        scad_syntax::replace_assignment_values(&param_source_text, &edit_refs)
+                    {
+                        param_source_text = rewritten;
+                    }
+                    effective_defines.extend(literal_pairs);
+                }
+            }
+            Err(err) => {
+                emit_raw(&err.format_openscad(), echo_mode, &mut log_buf);
+            }
+        }
+    }
+
+    // `$preview` is true for CSG / ECHO / PARAM export and false for a full
+    // render, like OpenSCAD.
     let mut evaluator = Evaluator::new(EvalOptions {
         library_paths: options.library_paths,
-        defines: options.defines,
+        defines: effective_defines,
         cache: None,
         preview: !geometry_mode,
         object_function: options.object_function,
@@ -314,6 +385,26 @@ fn main() -> ExitCode {
     let result = match format {
         ExportFormat::Csg => write_bytes(output, geometry::to_csg_text(&nodes).as_bytes()),
         ExportFormat::Echo => write_bytes(output, log_buf.as_bytes()),
+        ExportFormat::Param => {
+            let extracted = scad_customizer::extract_parameters_with_defines(
+                &param_source_text,
+                &options.defines,
+            );
+            for warning in &extracted.warnings {
+                emit_raw(
+                    &warning.format_openscad(&input_file_name),
+                    echo_mode,
+                    &mut log_buf,
+                );
+            }
+            let title = options
+                .input
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let json = scad_customizer::to_param_json(&title, &extracted.parameters);
+            write_bytes(output, json.as_bytes())
+        }
         ExportFormat::Stl(_) | ExportFormat::Off => {
             return export_geometry(&evaluator, &nodes, output, format);
         }
@@ -518,6 +609,8 @@ mod tests {
             Ok(ExportFormat::Stl(StlFormat::Ascii))
         );
         assert_eq!(f("a.dat", Some("off")), Ok(ExportFormat::Off));
+        assert_eq!(f("a.param", None), Ok(ExportFormat::Param));
+        assert_eq!(f("-", Some("param")), Ok(ExportFormat::Param));
         assert_eq!(f("-", Some("csg")), Ok(ExportFormat::Csg));
         assert_eq!(
             f("a.xyz", None).unwrap_err(),

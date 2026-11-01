@@ -1,0 +1,6 @@
+plain_enum = 20; // [10, 20, 30]
+labeled_enum = 2.5; // [1:One, 2.5:Two and a half, 5:Five]
+single_labeled = 10; // [10:Ten]
+prepended = 15; // [10, 20]
+prepended_large = 1234567; // [10, 20]
+prepended_neg_zero = -0.0; // [10, 20]

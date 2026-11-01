@@ -263,7 +263,7 @@ fn lower_expr(node: &SyntaxNode) -> Expr {
     let kind = match node.kind() {
         LITERAL => match token(node, &[NUMBER, STRING, TRUE_KW, FALSE_KW, UNDEF_KW]) {
             Some(t) => match t.kind() {
-                NUMBER => ExprKind::Number(parse_number(t.text())),
+                NUMBER => ExprKind::Number(parse_number_literal(t.text())),
                 STRING => ExprKind::String(unescape(t.text()).into()),
                 TRUE_KW => ExprKind::Bool(true),
                 FALSE_KW => ExprKind::Bool(false),
@@ -449,7 +449,8 @@ fn lower_list_element(node: &SyntaxNode) -> ListElement {
     ListElement { kind, span }
 }
 
-fn parse_number(text: &str) -> f64 {
+/// Parses an OpenSCAD numeric token (`NUMBER`, decimal or `0x` hex) into `f64`.
+pub fn parse_number_literal(text: &str) -> f64 {
     match text.strip_prefix("0x") {
         Some(hex) => u64::from_str_radix(hex, 16).map_or_else(
             |_| {
@@ -471,7 +472,7 @@ fn parse_number(text: &str) -> f64 {
 
 /// Decodes a quoted string literal.
 fn unescape(quoted: &str) -> String {
-    crate::lexer::decode_string_literal(quoted, 0, |_| {})
+    crate::lexer::unescape_string_literal(quoted)
 }
 
 #[cfg(test)]

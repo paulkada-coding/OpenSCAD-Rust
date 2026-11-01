@@ -10,6 +10,7 @@ license.workspace = true
 geometry = { version = "0.1.0", path = "../geometry" }
 mesh-io = { version = "0.1.0", path = "../mesh-io" }
 mesher = { version = "0.1.0", path = "../mesher" }
+scad-customizer = { version = "0.1.0", path = "../scad-customizer" }
 scad-syntax = { version = "0.1.0", path = "../scad-syntax" }
 scad-eval = { version = "0.1.0", path = "../scad-eval" }
 
