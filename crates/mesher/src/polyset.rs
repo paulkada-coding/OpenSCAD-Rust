@@ -6,6 +6,8 @@ use geometry::Mesh;
 use geometry::glam::{DMat4, DVec2, DVec3};
 use manifold::Manifold;
 
+use crate::tess;
+
 /// Indexed polygon mesh. Faces are counter-clockwise seen from outside.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PolySet {
@@ -111,48 +113,21 @@ fn triangulate_face(vertices: &[DVec3], face: &[u32], out: &mut Vec<[u32; 3]>) {
             if normal == DVec3::ZERO {
                 return;
             }
+            // Convex faces get OpenSCAD's own diagonals.
+            let corners: Vec<DVec3> = face.iter().map(|&i| vertices[i as usize]).collect();
+            if let Some(tris) = tess::convex_face(&corners) {
+                out.extend(tris.into_iter().map(|t| t.map(|i| face[i])));
+                return;
+            }
             let pts: Vec<DVec2> = face
                 .iter()
                 .map(|&i| project_to_plane(normal, vertices[i as usize]))
                 .collect();
-            if face.len() == 4 {
-                // Split a convex quad along the shorter diagonal.
-                let cross = |a: DVec2, b: DVec2, c: DVec2| (b - a).perp_dot(c - a);
-                let convex =
-                    (0..4).all(|i| cross(pts[i], pts[(i + 1) % 4], pts[(i + 2) % 4]) > 0.0);
-                if convex {
-                    let ac = (pts[2] - pts[0]).length_squared();
-                    let bd = (pts[3] - pts[1]).length_squared();
-                    if bd < ac {
-                        out.push([face[0], face[1], face[3]]);
-                        out.push([face[1], face[2], face[3]]);
-                    } else {
-                        out.push([face[0], face[1], face[2]]);
-                        out.push([face[0], face[2], face[3]]);
-                    }
-                    return;
-                }
-            }
-            if is_convex(&pts) {
-                for i in 1..face.len() - 1 {
-                    out.push([face[0], face[i], face[i + 1]]);
-                }
-                return;
-            }
             for t in manifold::triangulate(&[pts], -1.0) {
                 out.push(t.map(|i| face[i]));
             }
         }
     }
-}
-
-/// Strictly convex, counter-clockwise polygon.
-fn is_convex(pts: &[DVec2]) -> bool {
-    let n = pts.len();
-    (0..n).all(|i| {
-        let (a, b, c) = (pts[i], pts[(i + 1) % n], pts[(i + 2) % n]);
-        (b - a).perp_dot(c - a) > 0.0
-    })
 }
 
 #[cfg(test)]

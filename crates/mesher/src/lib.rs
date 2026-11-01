@@ -21,6 +21,7 @@ mod import;
 mod planar;
 mod polyset;
 mod primitives;
+mod tess;
 mod text;
 
 use std::panic::AssertUnwindSafe;

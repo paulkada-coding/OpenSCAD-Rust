@@ -177,7 +177,34 @@ fn describe(ours: &Mesh, theirs: &Mesh) -> String {
             println!("    theirs only {:?} {:?} {:?}", p.x, p.y, p.z);
         }
     }
-    let verdict = if exact == a.len() && exact == b.len() {
+    // Triangles as vertex-key triples, rotated to start at the smallest.
+    let tri_set = |m: &Mesh| -> HashSet<[[u64; 3]; 3]> {
+        m.triangles()
+            .map(|t| {
+                let mut k = t.map(key);
+                let first = (0..3).min_by_key(|&i| k[i]).unwrap_or(0);
+                k.rotate_left(first);
+                k
+            })
+            .collect()
+    };
+    let (ta, tb) = (tri_set(ours), tri_set(theirs));
+    let same_tris = ta.intersection(&tb).count();
+    if std::env::var_os("ORACLE_DUMP").is_some() {
+        for t in tb.difference(&ta).take(6) {
+            let p = t.map(|v| v.map(f64::from_bits));
+            println!("    theirs tri  {p:?}");
+        }
+        for t in ta.difference(&tb).take(6) {
+            let p = t.map(|v| v.map(f64::from_bits));
+            println!("    ours tri    {p:?}");
+        }
+    }
+    let verdict = if exact == a.len() && exact == b.len() && same_tris == tb.len() {
+        "EXACT"
+    } else if exact == a.len() && exact == b.len() {
+        "VERTS"
+    } else if exact == a.len() && exact == b.len() {
         "EXACT"
     } else if a.len() == b.len() && worst < 1e-9 {
         "ulp"
@@ -185,7 +212,7 @@ fn describe(ours: &Mesh, theirs: &Mesh) -> String {
         "DIFF"
     };
     format!(
-        "{verdict} verts {}/{} exact {exact}, maxdev {worst:.2e} at {worst_at:?}, vol {va:.6} vs {vb:.6}, bbox diff {bdiff:.2e}, tris {}/{}",
+        "{verdict} tris same {same_tris}, verts {}/{} exact {exact}, maxdev {worst:.2e} at {worst_at:?}, vol {va:.6} vs {vb:.6}, bbox diff {bdiff:.2e}, tris {}/{}",
         a.len(),
         b.len(),
         ours.triangles.len(),
