@@ -25,6 +25,7 @@ Predisposta per: modellazione 3D diretta e assistente AI (Claude / Gemini) integ
 | 2026-10-31 | Visual Studio Build Tools **2022** (non 2026) | Massima compatibilità con l'ecosistema Rust/CMake; la 2026 non porta vantaggi per noi |
 | 2026-10-31 | OpenSCAD ufficiale (Nightly) usato **solo come oracolo di test** | Confronto automatico dei risultati per misurare la compatibilità |
 | 2026-10-31 | Frequenza fotogrammi **costante** di default (Impostazioni → Schermo), "su richiesta" opzionale | Con G-Sync/VRR i fotogrammi irregolari fanno variare la frequenza del monitor e gli OLED dell'utente sfarfallano |
+| 2026-11-01 | Licenza **GPL-3.0-or-later** (scelta dell'utente); README, CI GitHub Actions (Windows) | Pubblicazione su GitHub; le parti incluse (Manifold Apache-2.0, Clipper2 BSL-1.0, font OFL) sono compatibili |
 
 ## Stack
 
