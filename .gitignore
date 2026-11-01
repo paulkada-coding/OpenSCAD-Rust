@@ -1,3 +1,37 @@
+# Build output (Cargo) and debug symbols
 /target
+**/*.rs.bk
 *.pdb
+
+# Temporary output of the app, the CLI and the tests
 /out
+
+# Fuzzing (cargo-fuzz) and profiling
+fuzz/target/
+fuzz/artifacts/
+fuzz/corpus/
+*.profraw
+*.profdata
+flamegraph.svg
+perf.data*
+
+# Claude Code: local settings and agent worktrees
+.claude/settings.local.json
+.claude/worktrees/
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Operating systems
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Secrets (future AI provider keys)
+.env
+.env.*

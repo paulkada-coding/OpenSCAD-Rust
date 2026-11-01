@@ -4,6 +4,7 @@ description = "Command-line OpenSCAD engine: evaluates .scad files and exports t
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
 geometry = { version = "0.1.0", path = "../geometry" }

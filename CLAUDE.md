@@ -175,7 +175,7 @@ cargo run -p app -- --render-png in.stl out\x.png 1280x800   # snapshot senza fi
 cargo test --workspace
 cargo build -p scadr; cargo run -p compat-runner                 # suite testuale vs OpenSCAD
 cargo run -p compat-runner -- --geometry -v                      # suite geometrica vs OpenSCAD
-.	argetdebugscadr.exe -o outx.stl in.scad                  # export STL (ASCII come OpenSCAD; binstl per il binario)
+.\target\debug\scadr.exe -o out\x.stl in.scad          # export STL (ASCII come OpenSCAD; binstl per il binario)
 cargo clippy --workspace --all-targets
 cargo fmt --all
 & 'C:\Program Files\OpenSCAD (Nightly)\openscad.exe' --backend=manifold -o out.stl in.scad  # oracolo

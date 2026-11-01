@@ -4,7 +4,8 @@ description = "Safe wrapper around the Manifold CSG kernel (3D booleans, CrossSe
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license = "Apache-2.0"
+# Our wrapper and shim; the vendored Manifold is Apache-2.0, Clipper2 BSL-1.0.
+license = "GPL-3.0-or-later AND Apache-2.0 AND BSL-1.0"
 # Native library guard: prevents linking a second copy of Manifold
 # (e.g. through manifold-csg-sys, which uses the same key).
 links = "manifold"

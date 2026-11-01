@@ -3,6 +3,8 @@ name = "scad-font"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+# Bundles the Liberation fonts (SIL Open Font License 1.1).
+license = "GPL-3.0-or-later AND OFL-1.1"
 
 [dependencies]
 fontdb = "0.24.0"

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the version; rustup installs it on first use.
+      - name: Toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: OpenSCAD compatibility (text)
+        run: |
+          cargo build -p scadr
+          cargo run -p compat-runner
+
+      # One known geometric difference (lex_scale_vector): reported, not blocking.
+      - name: OpenSCAD compatibility (geometry)
+        continue-on-error: true
+        run: cargo run -p compat-runner -- --geometry
