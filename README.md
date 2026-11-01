@@ -43,6 +43,10 @@ almost all builtin functions, `echo`/`assert`, `text()` with bundled fonts,
   text and vector fields; the model updates live while you drag. Presets are saved in the same
   `<model>.json` file as OpenSCAD's, and "Apply to file" writes the values into the `.scad`
   keeping comments and formatting.
+- **Click on the model → code**: clicking a part of the model shows the code that made it, with
+  the whole chain of calls (top-level statement › module calls › primitive) and the code excerpt;
+  the selected code's geometry is highlighted in blue (every instance of it). Choose another link
+  of the chain to select a whole module call; Esc or a click beside the model clears it.
 - Console with OpenSCAD's messages (`ECHO`, `WARNING`, `ERROR`) and their location in the code.
 - Preset views, perspective/orthographic, grid, axes, edges; `#` shown in transparent red and
   `%` in transparent grey.

@@ -15,14 +15,16 @@ use mesher::{RenderOutput, Shape};
 use render::{LayerKind, LayerMesh, Projection, ViewPreset};
 
 use crate::customizer::{self, CustomizerEvent, CustomizerState, PersistedCustomizer};
+use crate::selection::{self, Provenance, Selection, SelectionEvent};
 use crate::settings::{self, FrameRate, PanelSide, Settings};
-use crate::viewport::Viewport;
+use crate::viewport::{PickRay, Viewport};
 use crate::worker::{ConsoleLine, JobResult, LineKind, Worker, modified_time};
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 const EXPORT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::E);
 const RELOAD: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F5);
 const FIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F);
+const CLEAR_SELECTION: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Escape);
 
 /// How often open files are checked for changes on disk.
 const WATCH_INTERVAL: Duration = Duration::from_millis(500);
@@ -60,6 +62,10 @@ struct Document {
     kind: DocumentKind,
     /// The exportable solid, when the result is 3D.
     solid: Option<Mesh>,
+    /// Which code produced each triangle of `solid` (`.scad` only).
+    provenance: Option<Provenance>,
+    /// The picked code, highlighted in the viewport.
+    selection: Option<Selection>,
     is_planar: bool,
     stats: Option<Stats>,
     /// Files to watch, with the modification time last seen.
@@ -79,6 +85,8 @@ impl Document {
             path,
             kind,
             solid: None,
+            provenance: None,
+            selection: None,
             is_planar: false,
             stats: None,
             pending: None,
@@ -317,11 +325,20 @@ impl ViewerApp {
             Shape::Solid(mesh) if !mesh.is_empty() => Some(mesh.clone()),
             _ => None,
         };
+        doc.provenance = result.provenance.filter(|_| doc.solid.is_some());
+        // Keep the selection while the code it points to is unchanged
+        // (e.g. a new Customizer value).
+        doc.selection = doc
+            .selection
+            .take()
+            .zip(doc.provenance.as_ref())
+            .and_then(|(old, provenance)| provenance.carry_over(&old));
         let frame = !doc.framed;
         doc.framed = true;
 
         let layers = layers_of(&output);
         self.show_geometry(&layers);
+        self.update_highlight();
         if frame {
             self.viewport.fit();
         }
@@ -334,6 +351,80 @@ impl ViewerApp {
             .is_some_and(|d| d.kind == DocumentKind::Stl);
         self.viewport
             .set_layers(&self.render_state.device, layers, fit);
+    }
+
+    // ---------------------------------------------------------- selection
+
+    /// Selects the code that produced the clicked triangle; a click beside
+    /// the model clears the selection.
+    fn pick(&mut self, ray: PickRay) {
+        let Some(doc) = &mut self.document else {
+            return;
+        };
+        let hit = doc
+            .solid
+            .as_ref()
+            .and_then(|mesh| mesh.raycast(ray.origin, ray.direction));
+        let Some(hit) = hit else {
+            if doc.selection.take().is_some() {
+                self.update_highlight();
+            }
+            return;
+        };
+        let selection = match (&doc.provenance, doc.kind) {
+            (Some(provenance), _) => provenance.select(hit.triangle),
+            (None, DocumentKind::Stl) => {
+                self.status = Status::Info("STL files do not record the code of the model".into());
+                return;
+            }
+            (None, DocumentKind::Scad) => None,
+        };
+        let Some(selection) = selection else {
+            self.status = Status::Info("No source information for this part of the model".into());
+            return;
+        };
+        let link = selection.current();
+        self.status = Status::Info(format!(
+            "{} — {}",
+            link.location.summary(),
+            link.location.describe()
+        ));
+        doc.selection = Some(selection);
+        self.update_highlight();
+    }
+
+    fn handle_selection_event(&mut self, event: SelectionEvent) {
+        let Some(doc) = &mut self.document else {
+            return;
+        };
+        match event {
+            SelectionEvent::None => return,
+            SelectionEvent::Level(level) => {
+                if let Some(selection) = &mut doc.selection {
+                    selection.level = level;
+                }
+            }
+            SelectionEvent::Clear => doc.selection = None,
+        }
+        self.update_highlight();
+    }
+
+    /// Sends the triangles of the selected code to the viewport.
+    fn update_highlight(&mut self) {
+        let device = &self.render_state.device;
+        let Some(doc) = &mut self.document else {
+            self.viewport.set_selection(device, None);
+            return;
+        };
+        let highlight = match (&mut doc.selection, &doc.provenance, &doc.solid) {
+            (Some(selection), Some(provenance), Some(model)) => {
+                let mesh = provenance.highlight(model, selection.current().source);
+                selection.triangles = mesh.triangle_count();
+                Some(mesh)
+            }
+            _ => None,
+        };
+        self.viewport.set_selection(device, highlight.as_ref());
     }
 
     /// Re-evaluates when a watched file changed on disk.
@@ -432,6 +523,13 @@ impl ViewerApp {
         let typing = ctx.egui_wants_keyboard_input();
         if !typing && ctx.input_mut(|i| i.consume_shortcut(&FIT)) {
             self.viewport.fit();
+        }
+        let has_selection = self
+            .document
+            .as_ref()
+            .is_some_and(|d| d.selection.is_some());
+        if !typing && has_selection && ctx.input_mut(|i| i.consume_shortcut(&CLEAR_SELECTION)) {
+            self.handle_selection_event(SelectionEvent::Clear);
         }
     }
 
@@ -564,7 +662,7 @@ impl ViewerApp {
         }
     }
 
-    fn model_panel(&self, ui: &mut egui::Ui) {
+    fn model_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Model");
         ui.add_space(4.0);
         let Some(doc) = &self.document else {
@@ -621,6 +719,13 @@ impl ViewerApp {
                 }
             });
 
+        let mut event = SelectionEvent::None;
+        if doc.kind == DocumentKind::Scad && doc.solid.is_some() {
+            ui.add_space(12.0);
+            ui.separator();
+            event = selection::selection_ui(ui, doc.selection.as_ref());
+        }
+
         ui.add_space(12.0);
         ui.separator();
         if doc.kind == DocumentKind::Scad {
@@ -629,7 +734,11 @@ impl ViewerApp {
             );
             ui.add_space(4.0);
         }
-        ui.weak("Left: orbit · Right/middle or Shift: pan · Wheel: zoom · Double-click or F: fit");
+        ui.weak(
+            "Left: orbit · Right/middle or Shift: pan · Wheel: zoom · Double-click or F: fit · \
+             Click: select",
+        );
+        self.handle_selection_event(event);
     }
 
     fn console_panel(&mut self, ui: &mut egui::Ui) {
@@ -774,7 +883,11 @@ impl eframe::App for ViewerApp {
         }
         egui::Panel::left("model")
             .default_size(260.0)
-            .show(ui, |ui| self.model_panel(ui));
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.model_panel(ui));
+            });
         if self.show_customizer && self.customizer.is_some() {
             let panel = match self.settings.customizer_side {
                 PanelSide::Right => egui::Panel::right("parameters"),
@@ -788,9 +901,13 @@ impl eframe::App for ViewerApp {
         }
 
         let render_state = self.render_state.clone();
-        egui::CentralPanel::default()
+        let pick = egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show(ui, |ui| self.viewport.ui(ui, &render_state));
+            .show(ui, |ui| self.viewport.ui(ui, &render_state))
+            .inner;
+        if let Some(ray) = pick {
+            self.pick(ray);
+        }
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

@@ -12,6 +12,8 @@ use eframe::egui;
 use mesher::{RenderOptions, RenderOutput};
 use scad_eval::{EvalOptions, Evaluator, Level, Message, SourceCache};
 
+use crate::selection::Provenance;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineKind {
     Echo,
@@ -34,6 +36,8 @@ pub struct JobResult {
     pub console: Vec<ConsoleLine>,
     /// `None` when evaluation or meshing failed or was cancelled.
     pub output: Option<RenderOutput>,
+    /// Which code produced each triangle of the solid in `output`.
+    pub provenance: Option<Provenance>,
     /// Files read by the program (main file, includes, libraries), with
     /// their modification time when the job started, for auto-reload.
     pub dependencies: Vec<(PathBuf, Option<SystemTime>)>,
@@ -112,6 +116,7 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
         path: job.path.clone(),
         console: Vec::new(),
         output: None,
+        provenance: None,
         dependencies: vec![(job.path.clone(), modified_time(&job.path))],
         eval_time: Duration::ZERO,
         mesh_time: Duration::ZERO,
@@ -170,7 +175,7 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
     // import()/surface() paths resolve against the file containing the call.
     let files: Vec<PathBuf> = evaluator.files().iter().map(|f| f.path.clone()).collect();
     match mesher::render_with_files(&nodes, &options, &files) {
-        Ok(output) => {
+        Ok(mut output) => {
             for diagnostic in &output.diagnostics {
                 let location = diagnostic.source.map_or_else(String::new, |s| {
                     let line = evaluator
@@ -188,6 +193,7 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
                     text: format!("{label}: {}{location}", diagnostic.text),
                 });
             }
+            result.provenance = Provenance::take(&mut output, &evaluator);
             result.output = Some(output);
         }
         Err(mesher::RenderError::Cancelled) => {}

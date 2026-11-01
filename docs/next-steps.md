@@ -76,7 +76,8 @@ The geometry suite must not get worse: the only case failing today is `lex_scale
 | `scadr` CLI | `-o x.csg/.echo/.stl/.off/.param`, `-p`/`-P` presets, `-D`, `-L`, `--enable`, `--export-format`; OpenSCAD messages and exit codes |
 | App | Opens `.scad`/`.stl`, background computation, console, automatic reload, transparent `#`/`%`, STL export, persistent settings (constant frame rate for OLED/G-Sync), Customizer panel with presets and "Apply to file" |
 | Customizer | 17/17 `.param` cases identical to OpenSCAD; `scad-customizer` crate |
-| Missing | Integrated editor, model→code click, SVG/DXF/3MF/OBJ import, 3MF export, verified BOSL2 compatibility, AI |
+| Model → code | Click on the model: chain of calls, code excerpt, blue highlight of the selected code's geometry (§3.1, done) |
+| Missing | Integrated editor, SVG/DXF/3MF/OBJ import, 3MF export, verified BOSL2 compatibility, AI |
 
 To be confirmed by the user (cannot be verified automatically on this machine, simulated clicks
 do not reach the window): mouse interaction in the viewport, export from the menu, absence of
@@ -171,13 +172,13 @@ previous line. They must work perfectly.
 
 ## 3. Next work (in order of value for the user)
 
-### 3.1 Click on the model → code
-- The mesher already provides `RenderOutput::triangle_sources` + `sources` (provenance of every
-  triangle, including through booleans) and `Node::source`/`root_call`; the interpreter has
-  `Evaluator::resolve_source`.
-- *Picking* is needed: an ID buffer in the renderer (`crates/render/src/scene.rs`, a second color
-  target with the triangle index) or a CPU raycast. On click, show file, line and
-  snippet; highlight in yellow all the triangles from the same source.
+### 3.1 Click on the model → code (done on 2026-11-01)
+- Built with a CPU raycast (`geometry::Mesh::raycast`, `render::Scene::pick_ray`) and the chain
+  of calls behind every triangle (`mesher::RenderOutput::source_paths`); UI in
+  `crates/app/src/selection.rs`. The selection is blue, not yellow: the model is already yellow.
+- Possible follow-ups: picking 2D results (planar outlines are not traced), a BVH if very large
+  models make the brute-force raycast slow (it is linear in the triangle count, run only on
+  click), hover preview, and "cursor on the line" once the editor exists (§3.2).
 
 ### 3.2 Integrated editor
 - Editor panel with syntax highlighting based on our lexer (`scad-syntax`),

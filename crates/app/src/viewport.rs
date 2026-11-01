@@ -3,10 +3,19 @@
 
 use eframe::egui::{self, PointerButton, Rect, Sense, pos2};
 use eframe::egui_wgpu::{self, wgpu};
+use geometry::Mesh;
+use geometry::glam::DVec3;
 use render::{LayerMesh, OrbitCamera, Projection, Scene, SceneStyle, ViewPreset};
 
 const ORBIT_SPEED: f32 = 0.008; // radians per point
 const ZOOM_SPEED: f32 = 0.0015; // per scrolled point
+
+/// A click on the viewport, as a ray in world coordinates.
+#[derive(Debug, Clone, Copy)]
+pub struct PickRay {
+    pub origin: DVec3,
+    pub direction: DVec3,
+}
 
 pub struct Viewport {
     scene: Scene,
@@ -33,6 +42,12 @@ impl Viewport {
         if fit {
             self.fit();
         }
+        self.dirty = true;
+    }
+
+    /// Highlights picked triangles (`None` clears the highlight).
+    pub fn set_selection(&mut self, device: &wgpu::Device, mesh: Option<&Mesh>) {
+        self.scene.set_selection(device, mesh);
         self.dirty = true;
     }
 
@@ -73,9 +88,28 @@ impl Viewport {
         self.dirty = true;
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, render_state: &egui_wgpu::RenderState) {
+    /// Shows the scene and handles the mouse; returns the ray under the
+    /// pointer when the model area was clicked.
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        render_state: &egui_wgpu::RenderState,
+    ) -> Option<PickRay> {
         let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         self.handle_input(ui, &response, rect);
+        let pick = response
+            .clicked_by(PointerButton::Primary)
+            .then(|| response.interact_pointer_pos())
+            .flatten()
+            .map(|pos| {
+                let (origin, direction) =
+                    self.scene
+                        .pick_ray(&self.camera, rect.size().into(), (pos - rect.min).into());
+                PickRay {
+                    origin: origin.as_dvec3(),
+                    direction: direction.as_dvec3(),
+                }
+            });
 
         let ppp = ui.ctx().pixels_per_point();
         let size = [
@@ -83,7 +117,7 @@ impl Viewport {
             (rect.height() * ppp).round() as u32,
         ];
         if size[0] == 0 || size[1] == 0 {
-            return;
+            return pick;
         }
 
         // The scene is re-rendered only when something changed; otherwise
@@ -106,6 +140,7 @@ impl Viewport {
             let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
             ui.painter().image(id, rect, uv, egui::Color32::WHITE);
         }
+        pick
     }
 
     fn register_texture(&mut self, render_state: &egui_wgpu::RenderState) {

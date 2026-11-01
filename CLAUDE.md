@@ -31,6 +31,7 @@ Repository: https://github.com/capriatiivan-prog/OpenSCAD-Rust (branch `main`).
 | 2026-10-31 | **Constant** frame rate by default (Settings → Display), "on demand" optional | With G-Sync/VRR, irregular frames change the monitor's refresh rate and the user's OLED panels flicker |
 | 2026-11-01 | License **GPL-3.0-or-later** (user's choice); README, GitHub Actions CI (Windows) | Publishing on GitHub; bundled parts (Manifold Apache-2.0, Clipper2 BSL-1.0, OFL fonts) are compatible |
 | 2026-11-01 | All repository content in English, including the app UI | Public repository; an Italian UI translation can come later through i18n |
+| 2026-11-01 | Model → code picking with a **CPU raycast** (not a GPU ID buffer); selection drawn in **blue** | Raycast: simple, testable without a GPU, reusable by direct modelling and the AI, < 1 ms on the user's models. Blue: the model is already OpenSCAD yellow, back faces green, `#` red |
 
 ## Stack
 
@@ -61,11 +62,11 @@ crates/
   scadr/           OpenSCAD-compatible CLI (`-o x.csg|x.echo|x.param|x.stl|x.off`, `-p`, `-P`, `-L`, `-D`, `--enable=...`, exit codes and diagnostics)
   manifold/        vendored Manifold v3.5.4 + C++ no-exception shim; triangulation, original IDs, integer Clipper2
   geometry/        indexed f64 mesh, Aabb, volume/area, sharp edges, CSG tree (`Node` with `source` + `root_call`) and `.csg` export
-  mesher/          CSG tree → meshes with Manifold: OpenSCAD-identical tessellation, 2D on a 2^-27 grid, extrusions, text, import, triangle→source provenance
+  mesher/          CSG tree → meshes with Manifold: OpenSCAD-identical tessellation, 2D on a 2^-27 grid, extrusions, text, import, triangle→source provenance with the chain of calls
   mesh-io/         STL (binary/ASCII, OpenSCAD format) and OFF, reading and writing; later 3MF/OBJ, SVG/DXF import
-  render/          offscreen wgpu Scene (MSAA 4x, sRGB), Z-up OrbitCamera, headless rendering → PNG
+  render/          offscreen wgpu Scene (MSAA 4x, sRGB), Z-up OrbitCamera, picking rays, selection highlight, headless rendering → PNG
   ai/              (to do) Claude/Gemini providers, tools
-  app/             egui UI: menu, model panel, Customizer ("Parameters") panel + presets, viewport, status bar, persistent settings
+  app/             egui UI: menu, model panel, click on the model → code (selection), Customizer ("Parameters") panel + presets, viewport, status bar, persistent settings
 tools/
   compat-runner/   automatic parallel comparison with OpenSCAD Nightly's expected outputs (text, `--params`, `--geometry`)
 examples/          sample .scad files (+ STL generated with OpenSCAD)
@@ -188,6 +189,27 @@ Principles:
   - parser: a leading UTF-8 byte order mark is accepted like OpenSCAD (new case
     `lex_utf8_bom`, **218/218**).
 
+- 2026-11-01: **click on the model → code (next-steps §3.1) on branch `claude/vibrant-rubin-sc5ljg`**
+  (developed in a Linux cloud session).
+  - `mesher`: `RenderOutput::source_paths`, the chain of nested instantiations behind every
+    traced source (top-level statement › module calls › transformations › primitive); the same
+    code reached through different calls gets separate entries.
+  - `geometry`: `Mesh::raycast` (two-sided Möller–Trumbore, nearest hit) and `Aabb::hit_by_ray`.
+  - `render`: `OrbitCamera::ray` (perspective and orthographic, checked against the projection
+    matrix), `Scene::pick_ray`, `Scene::set_selection` (blue layer drawn over the model's own
+    faces, under the edges); GPU test `crates/render/tests/selection.rs` (skipped without an
+    adapter).
+  - `app`: new `selection` module. A click selects the primitive under the cursor; the model
+    panel shows the chain of calls (click a link to select a whole module call), file, lines,
+    code excerpt and highlighted triangle count; every triangle produced through the selected
+    code is highlighted. Esc or a click beside the model clears it. The selection survives
+    re-renders of unchanged code (e.g. Customizer changes). STL files: a message explains that
+    they carry no code.
+  - Verified: fmt/clippy/tests clean, 218/218 text, 17/17 params, geometry unchanged (39/60/1);
+    the app was driven under Xvfb with Mesa lavapipe on `porta_carte.scad` (selection, chain
+    levels, Customizer change keeping the selection, Esc, click beside the model). To be tried by
+    the user on Windows.
+
 ## Notes for the next milestones
 
 - `SourceCache` uses `Rc<RefCell>` and is not `Send`: in the app evaluation runs in a dedicated
@@ -195,8 +217,12 @@ Principles:
 - `SourceCache` covers `include`/`use`; the main file is always re-parsed (in the app it will
   come from the editor buffer, not from disk).
 - `text()` is already meshed by the mesher through `scad-font` (vertices identical to OpenSCAD).
-- `RenderOutput::triangle_sources` + `sources` give the provenance of every triangle: the basis
-  for clicking the model → line of code (not yet wired into the app).
+- `RenderOutput::triangle_sources` + `sources` + `source_paths` give the provenance of every
+  triangle; the app turns them into `selection::Provenance` in the worker (where the source texts
+  live). Planar (2D) results are not traced yet, so they cannot be picked.
+- The workspace also builds and tests on Linux (cloud sessions): `apt-get install
+  mesa-vulkan-drivers` gives a software Vulkan adapter (lavapipe) for the GPU tests, and the app
+  runs under `Xvfb` (needs `libxkbcommon-x11-0`; `xdotool` drives it).
 - The mesher is not incremental: every reload recomputes everything (40–80 ms on the user's
   models). M4 measured 39–85 ms per change (315 ms for the `taratura` mode): a per-subtree cache is not needed yet.
 - `-D` overrides are the basis for Customizer values (M4): same semantics as OpenSCAD (an
