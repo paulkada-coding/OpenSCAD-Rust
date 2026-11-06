@@ -234,6 +234,10 @@ Principles:
   the editor, cursor moved there. BOM/CRLF preserved, non-UTF-8 files read-only. Verified:
   fmt/clippy/tests clean (new unit tests for encoding, highlighting, errors). Verified by the user in the
   app on Windows the same day; merged into `main` (fast-forward).
+- 2026-11-06: **cursor in the editor → model on branch `editor-cursor`**: moving the cursor
+  selects the innermost code under it (`selection::Provenance::select_at`), shown in blue on the
+  model, in the editor and in the model panel. Verified: fmt/clippy/tests clean (new unit test);
+  to be tried by the user.
 
 ## Notes for the next milestones
 

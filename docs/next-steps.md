@@ -190,8 +190,12 @@ previous line. They must work perfectly.
   other unsaved edits. Click on the model → the code is shown in blue in the editor and the
   cursor moves there. The file's BOM and CRLF line endings are kept; non-UTF-8 files open
   read-only.
-- Possible follow-ups: cursor in the editor → highlight on the model (reverse direction),
-  find/replace, editing included files, auto-indent and bracket matching, underlining
+- Cursor in the editor → model (done on 2026-11-06): moving the cursor (click, arrow keys)
+  selects the innermost code under it that made geometry (`Provenance::select_at`), highlighted
+  in blue on the model and in the editor; inside the current selection nothing changes, on code
+  that made nothing (comments, module headers) the selection is cleared; ignored while the
+  edited text is not evaluated yet.
+- Possible follow-ups: find/replace, editing included files, auto-indent and bracket matching, underlining
   evaluation errors (today only parse errors).
 
 ### 3.3 3MF (and OBJ) export

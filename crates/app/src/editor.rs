@@ -219,6 +219,13 @@ fn char_index(text: &str, offset: usize) -> usize {
     text.char_indices().take_while(|&(i, _)| i < offset).count()
 }
 
+/// Character index (egui's cursors) → byte offset.
+fn byte_offset(text: &str, index: usize) -> usize {
+    text.char_indices()
+        .nth(index)
+        .map_or(text.len(), |(i, _)| i)
+}
+
 /// The largest character boundary not after `offset`.
 fn floor_boundary(text: &str, offset: usize) -> usize {
     let mut offset = offset.min(text.len());
@@ -447,6 +454,10 @@ pub struct Editor {
     reveal: Option<usize>,
     /// The file changed on disk while the buffer had unsaved edits.
     conflict: bool,
+    /// Character index of the cursor as last seen, to notice moves.
+    last_cursor: Option<usize>,
+    /// Byte offset the user moved the cursor to, not yet taken by the app.
+    cursor_moved: Option<usize>,
     highlighter: Highlighter,
 }
 
@@ -466,6 +477,8 @@ impl Editor {
             picked: None,
             reveal: None,
             conflict: false,
+            last_cursor: None,
+            cursor_moved: None,
             highlighter: Highlighter::default(),
         })
     }
@@ -574,6 +587,12 @@ impl Editor {
         self.picked = range;
     }
 
+    /// Where the user moved the cursor (click or arrow keys, not typing)
+    /// since the last call, as a byte offset of the text.
+    pub fn take_cursor_move(&mut self) -> Option<usize> {
+        self.cursor_moved.take()
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) -> EditorEvent {
         let mut event = EditorEvent::None;
         let dirty = self.is_dirty();
@@ -674,16 +693,24 @@ impl Editor {
                     .layouter(&mut layouter)
                     .show(ui);
 
+                let cursor = output.cursor_range.map(|r| r.primary.index.0);
                 if output.response.changed() {
                     self.revision += 1;
                     self.changed_at = Some(Instant::now());
                     // The picked code's offsets no longer match the text.
                     self.picked = None;
                     event = EditorEvent::Changed;
+                } else if let Some(index) = cursor
+                    && cursor != self.last_cursor
+                {
+                    self.cursor_moved = Some(byte_offset(&self.text, index));
                 }
+                self.last_cursor = cursor;
 
                 if let Some(offset) = reveal {
                     let cursor = CCursor::new(char_index(&self.text, offset));
+                    // Moved by the app, not the user: not a move to report.
+                    self.last_cursor = Some(cursor.index.0);
                     let mut state = output.state.clone();
                     state.cursor.set_char_range(Some(CCursorRange::one(cursor)));
                     state.store(ui.ctx(), id);

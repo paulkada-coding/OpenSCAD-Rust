@@ -939,12 +939,48 @@ impl ViewerApp {
         let Some(editor) = self.document.as_mut().and_then(|d| d.editor.as_mut()) else {
             return;
         };
-        match editor.ui(ui) {
+        let event = editor.ui(ui);
+        let cursor = editor.take_cursor_move();
+        match event {
             // Typing is evaluated once it pauses (see `take_due_change`).
             EditorEvent::None | EditorEvent::Changed => {}
             EditorEvent::Save => self.save(),
             EditorEvent::Reloaded => self.code_changed(),
         }
+        if let Some(offset) = cursor {
+            self.select_at_cursor(offset);
+        }
+    }
+
+    /// The cursor moved in the editor: select the code under it on the
+    /// model, like a click on the model selects its code.
+    fn select_at_cursor(&mut self, offset: usize) {
+        let Some(doc) = &mut self.document else {
+            return;
+        };
+        let (Some(editor), Some(provenance)) = (&doc.editor, &doc.provenance) else {
+            return;
+        };
+        // Offsets of an edited, not yet evaluated text mean nothing.
+        if doc.evaluated_revision != editor.revision() {
+            return;
+        }
+        // Inside the selected code (e.g. a level chosen in the model panel,
+        // or the code a click revealed): keep the selection as it is.
+        let inside = doc.selection.as_ref().is_some_and(|s| {
+            let link = s.current();
+            link.location.path == doc.path
+                && (link.source.start as usize..=link.source.end as usize).contains(&offset)
+        });
+        if inside {
+            return;
+        }
+        let selection = provenance.select_at(&doc.path, offset);
+        if selection.is_none() && doc.selection.is_none() {
+            return;
+        }
+        doc.selection = selection;
+        self.update_highlight(false);
     }
 
     /// Asks whether to save the code before opening another file or quitting.

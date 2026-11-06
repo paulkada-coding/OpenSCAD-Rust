@@ -8,7 +8,7 @@
 //! picking a statement inside a module shows all of its instances.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eframe::egui;
 use geometry::Mesh;
@@ -140,6 +140,47 @@ impl Provenance {
         (!links.is_empty()).then(|| Selection {
             level: links.len() - 1,
             links,
+            triangles: 0,
+        })
+    }
+
+    /// The selection for a position in the code (the editor's cursor): the
+    /// innermost traced code of `path` containing `offset`, so a cursor in
+    /// `cube(1)` inside a module selects that cube in every instance of the
+    /// module. `None` when no code that made geometry is there.
+    pub fn select_at(&self, path: &Path, offset: usize) -> Option<Selection> {
+        let contains = |s: &SourceRef| {
+            (s.start as usize..=s.end as usize).contains(&offset)
+                && self.locations.get(s).is_some_and(|l| l.path == path)
+        };
+        // Smallest span; among equal spans (`translate(…) cube(1);` and a
+        // call made only of it) the deepest link.
+        let (chain, depth) = self
+            .chains
+            .iter()
+            .flat_map(|chain| {
+                chain
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| contains(s))
+                    .map(move |(depth, s)| (chain, depth, s.len()))
+            })
+            .min_by_key(|&(_, depth, len)| (len, std::cmp::Reverse(depth)))
+            .map(|(chain, depth, _)| (chain, depth))?;
+        let target = chain[depth];
+        let links: Vec<Link> = chain
+            .iter()
+            .filter_map(|s| {
+                Some(Link {
+                    source: *s,
+                    location: self.locations.get(s)?.clone(),
+                })
+            })
+            .collect();
+        let level = links.iter().position(|l| l.source == target)?;
+        Some(Selection {
+            links,
+            level,
             triangles: 0,
         })
     }
@@ -281,8 +322,6 @@ pub fn selection_ui(ui: &mut egui::Ui, selection: Option<&Selection>) -> Selecti
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
     use mesher::{RenderOptions, Shape};
     use scad_eval::EvalOptions;
@@ -361,6 +400,40 @@ mod tests {
         // `table();`: the whole table, not the sphere.
         assert_eq!(count(0), 24);
         assert!(count(0) < mesh.triangle_count());
+    }
+
+    #[test]
+    fn cursor_selects_the_innermost_code_under_it() {
+        let (mesh, provenance) = render(TABLE);
+        let file = Path::new("model.scad");
+        let at = |needle: &str| TABLE.find(needle).expect("needle") + 1;
+        let selected = |offset: usize| {
+            provenance.select_at(file, offset).map(|s| {
+                let link = s.current();
+                (
+                    link.location.summary(),
+                    provenance.highlight(&mesh, link.source).triangle_count(),
+                )
+            })
+        };
+        // The cube inside the module: every leg.
+        assert_eq!(selected(at("cube(1)")), Some(("cube(1);".into(), 24)));
+        // The call of one leg: that leg only.
+        assert_eq!(selected(at("leg(3)")), Some(("leg(3);".into(), 12)));
+        // Right after the `;` still counts as the statement.
+        assert_eq!(selected(at("leg(3);") + 6), Some(("leg(3);".into(), 12)));
+        // The sphere's `translate`, also from its second line's indent.
+        assert_eq!(
+            selected(at("  sphere") - 1),
+            Some(("translate([0, 5, 0])…".into(), mesh.triangle_count() - 24))
+        );
+        // A module header makes no geometry by itself; other files neither.
+        assert_eq!(selected(at("module table")), None);
+        assert!(
+            provenance
+                .select_at(Path::new("other.scad"), at("cube(1)"))
+                .is_none()
+        );
     }
 
     #[test]
