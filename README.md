@@ -87,7 +87,7 @@ Windows 10/11 only for now (the code is meant to be portable to macOS and Linux,
 ## Build and run
 
 ```powershell
-git clone https://github.com/capriatiivan-prog/OpenSCAD-Rust.git
+git clone https://github.com/paulkada-coding/OpenSCAD-Rust.git
 cd OpenSCAD-Rust
 cargo run -p app                          # start the app
 cargo run -p app -- examples\supporto.stl # open a file directly

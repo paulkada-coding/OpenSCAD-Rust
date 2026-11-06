@@ -5,7 +5,7 @@ built on an **OpenSCAD interpreter written from scratch in Rust** (it does not u
 binary at runtime). Prepared for direct 3D modelling and an integrated AI assistant
 (Claude / Gemini).
 
-Repository: https://github.com/capriatiivan-prog/OpenSCAD-Rust (branch `main`).
+Repository: https://github.com/paulkada-coding/OpenSCAD-Rust (branch `main`).
 
 > This file is maintained by Claude: update it at every decision or milestone
 > ("Decisions", "Status" and "Roadmap" sections).
@@ -232,8 +232,8 @@ Principles:
   gets evaluated (live after a 300 ms pause, can be turned off in Settings → Editor); the
   Customizer reads the buffer and "Apply to file" edits it; click on the model → code in blue in
   the editor, cursor moved there. BOM/CRLF preserved, non-UTF-8 files read-only. Verified:
-  fmt/clippy/tests clean (new unit tests for encoding, highlighting, errors). Not yet seen on
-  screen (the PC was locked): to be tried by the user.
+  fmt/clippy/tests clean (new unit tests for encoding, highlighting, errors). Verified by the user in the
+  app on Windows the same day; merged into `main` (fast-forward).
 
 ## Notes for the next milestones
 
