@@ -167,6 +167,8 @@ impl EvalOptions {
 
 pub struct SourceInfo {
     pub path: PathBuf,
+    /// The path as OpenSCAD writes it in messages (see `display_path`).
+    pub display: String,
     pub text: Rc<str>,
     pub index: LineIndex,
 }
@@ -219,6 +221,8 @@ enum TraceFrame {
         file: u32,
         span: Span,
     },
+    /// `assignment to "x"` while evaluating an assignment.
+    Assignment { name: Name, file: u32, span: Span },
 }
 
 /// TRACE output keeps this many frames at each end of a long stack.
@@ -226,6 +230,8 @@ const TRACE_EDGE: usize = 12;
 
 pub struct Evaluator {
     pub(crate) files: Vec<SourceInfo>,
+    /// Absolute folder of the main file, which message paths are relative to.
+    main_dir: Option<PathBuf>,
     pub(crate) messages: Vec<Message>,
     /// Every active scope, innermost last: `$` variables are looked up here.
     stack: Vec<Rc<Scope>>,
@@ -239,6 +245,10 @@ pub struct Evaluator {
     pub(crate) rng: builtins::functions::Mt19937,
     root_modifiers: usize,
     trace: Vec<TraceFrame>,
+    /// The `call of 'm()'` frame of the module being entered: OpenSCAD
+    /// reports it only once the body's assignments are evaluated, so an
+    /// error in `x = f();` shows `assignment to "x"` instead.
+    pending_call_of: Option<TraceFrame>,
     top_scope: Option<Rc<Scope>>,
     top_nodes: Vec<Node>,
     current_root_call: Option<SourceRef>,
@@ -251,6 +261,7 @@ impl Evaluator {
     pub fn new(options: EvalOptions) -> Self {
         Self {
             files: Vec::new(),
+            main_dir: None,
             messages: Vec::new(),
             stack: Vec::new(),
             file: 0,
@@ -262,6 +273,7 @@ impl Evaluator {
             rng: builtins::functions::Mt19937::new(5489),
             root_modifiers: 0,
             trace: Vec::new(),
+            pending_call_of: None,
             top_scope: None,
             top_nodes: Vec::new(),
             current_root_call: None,
@@ -302,6 +314,7 @@ impl Evaluator {
     /// returned (OpenSCAD exports them too). Messages are collected in
     /// [`Self::messages`].
     pub fn run(&mut self, path: &Path, text: &str) -> (Vec<Node>, Option<EvalError>) {
+        self.main_dir = absolute(path).and_then(|p| p.parent().map(Path::to_path_buf));
         let (file, id) = match self.register_parsed(path, text) {
             Ok(parsed) => parsed,
             Err(err) => return (Vec::new(), Some(err)),
@@ -344,6 +357,7 @@ impl Evaluator {
             let id = self.files.len() as u32;
             self.files.push(SourceInfo {
                 path: PathBuf::from(format!("-D {name}")),
+                display: format!("-D {name}"),
                 index: LineIndex::new(&text),
                 text: text.into(),
             });
@@ -414,6 +428,7 @@ impl Evaluator {
         let id = self.files.len() as u32;
         self.files.push(SourceInfo {
             path: display_path.to_path_buf(),
+            display: self::display_path(display_path, self.main_dir.as_deref()),
             text: text.clone(),
             index,
         });
@@ -682,7 +697,7 @@ impl Evaluator {
         self.files.get(file as usize).map_or_else(String::new, |f| {
             format!(
                 " in file {}, line {}",
-                f.path.display().to_string().replace('\\', "/"),
+                f.display,
                 f.index.line(span.start())
             )
         })
@@ -708,6 +723,9 @@ impl Evaluator {
                     args.join(", "),
                     self.location(*file, *span)
                 )
+            }
+            TraceFrame::Assignment { name, file, span } => {
+                format!("assignment to \"{name}\"{}", self.location(*file, *span))
             }
         };
         let frames: Vec<&TraceFrame> = self.trace.iter().rev().collect();
@@ -753,8 +771,13 @@ impl Evaluator {
             .unwrap_or_default()
     }
 
-    fn lookup_variable(&mut self, name: &str, scope: &Rc<Scope>, span: Span) -> Value {
-        let found = if name.starts_with('$') {
+    /// A variable's value, `None` when it does not exist. `$` variables
+    /// are searched through the dynamic stack, except `$children`: like
+    /// OpenSCAD, it is the number of children of the module whose body
+    /// contains the code, also when that code runs as children of another
+    /// module (BOSL2's `attachable() { if ($children > 0) … }`).
+    fn find_variable(&self, name: &str, scope: &Rc<Scope>) -> Option<Value> {
+        if name.starts_with('$') && name != "$children" {
             self.stack
                 .iter()
                 .rev()
@@ -762,8 +785,11 @@ impl Evaluator {
                 .or_else(|| scope.lookup_var(name))
         } else {
             scope.lookup_var(name)
-        };
-        found.unwrap_or_else(|| {
+        }
+    }
+
+    fn lookup_variable(&mut self, name: &str, scope: &Rc<Scope>, span: Span) -> Value {
+        self.find_variable(name, scope).unwrap_or_else(|| {
             self.warning(format!("Ignoring unknown variable \"{name}\""), span);
             Value::Undef
         })
@@ -822,6 +848,7 @@ impl Evaluator {
         frame: Option<&Frame<'_>>,
         select: Option<&[usize]>,
     ) -> EvalResult<Vec<Node>> {
+        let call_of = self.pending_call_of.take();
         // 1. Definitions are visible in the whole block.
         for &(statement, file) in items {
             match &statement.kind {
@@ -850,17 +877,24 @@ impl Evaluator {
             Rc::from([])
         };
 
-        let mut order: Vec<(&Name, &Expr, u32)> = Vec::new();
+        let mut order: Vec<(&Name, &Expr, u32, Option<Span>)> = Vec::new();
         let mut position: FxHashMap<&Name, usize> = FxHashMap::default();
         for &(statement, file) in items {
             if let StatementKind::Assignment(assignment) = &statement.kind {
                 match position.get(&assignment.name) {
                     Some(&i) => {
-                        order[i] = (&assignment.name, &assignment.value, file);
+                        order[i].1 = &assignment.value;
+                        order[i].2 = file;
+                        order[i].3 = Some(statement.span);
                     }
                     None => {
                         position.insert(&assignment.name, order.len());
-                        order.push((&assignment.name, &assignment.value, file));
+                        order.push((
+                            &assignment.name,
+                            &assignment.value,
+                            file,
+                            Some(statement.span),
+                        ));
                     }
                 }
             }
@@ -869,17 +903,30 @@ impl Evaluator {
         // of an existing variable at its original position.
         for (def_name, def_expr, def_file) in defines.iter() {
             match position.get(def_name) {
-                Some(&i) => order[i] = (def_name, def_expr, *def_file),
+                Some(&i) => order[i] = (def_name, def_expr, *def_file, None),
                 None => {
                     position.insert(def_name, order.len());
-                    order.push((def_name, def_expr, *def_file));
+                    order.push((def_name, def_expr, *def_file, None));
                 }
             }
         }
-        for (name, expr, file) in order {
+        for (name, expr, file, span) in order {
             self.file = file;
+            if let Some(span) = span {
+                self.trace.push(TraceFrame::Assignment {
+                    name: name.clone(),
+                    file,
+                    span,
+                });
+            }
             let value = self.eval_expr(expr, scope)?;
+            if span.is_some() {
+                self.trace.pop();
+            }
             scope.set_var(name.clone(), value);
+        }
+        if let Some(call_of) = call_of {
+            self.trace.push(call_of);
         }
 
         // 3. Instantiations.
@@ -985,19 +1032,30 @@ impl Evaluator {
                 then_branch,
                 else_branch,
             } => {
-                let branch = if self.eval_expr(condition, scope)?.is_truthy() {
-                    Some(then_branch)
-                } else {
-                    else_branch.as_ref()
-                };
-                // A false `if` without `else` produces no node at all.
-                let Some(statements) = branch else {
-                    return Ok(None);
-                };
-                let inner = Scope::child(scope);
-                let children =
-                    self.with_scope(&inner, |ev| ev.eval_block(statements, &inner, frame))?;
-                Ok(Some(Node::group("if", children)))
+                // `called by 'if'`, at the condition (where OpenSCAD puts it).
+                let trace_base = self.trace.len();
+                self.trace.push(TraceFrame::CalledBy {
+                    name: "if".into(),
+                    file: self.file,
+                    span: condition.span,
+                });
+                let result = (|| {
+                    let branch = if self.eval_expr(condition, scope)?.is_truthy() {
+                        Some(then_branch)
+                    } else {
+                        else_branch.as_ref()
+                    };
+                    // A false `if` without `else` produces no node at all.
+                    let Some(statements) = branch else {
+                        return Ok(None);
+                    };
+                    let inner = Scope::child(scope);
+                    let children =
+                        self.with_scope(&inner, |ev| ev.eval_block(statements, &inner, frame))?;
+                    Ok(Some(Node::group("if", children)))
+                })();
+                self.trace.truncate(trace_base);
+                result
             }
             InstantiationKind::Call {
                 name,
@@ -1090,6 +1148,9 @@ impl Evaluator {
                 ev.warning(format!("Ignoring unknown module '{name}'"), name_span);
                 return Ok(None);
             }
+            // OpenSCAD checks a builtin's parameters before instantiating its
+            // children: its warnings go before theirs.
+            let before_children = ev.messages.len();
             let child_nodes = if !builtins::modules::accepts_children(name) {
                 if !children.is_empty() {
                     ev.warning(
@@ -1102,7 +1163,13 @@ impl Evaluator {
                 let inner = Scope::child(&call_scope);
                 ev.with_scope(&inner, |ev| ev.eval_block(children, &inner, frame))?
             };
-            builtins::modules::instantiate(ev, name, &values, child_nodes, span)
+            let after_children = ev.messages.len();
+            let node = builtins::modules::instantiate(ev, name, &values, child_nodes, span);
+            if after_children > before_children && ev.messages.len() > after_children {
+                let own: Vec<Message> = ev.messages.drain(after_children..).collect();
+                ev.messages.splice(before_children..before_children, own);
+            }
+            node
         })
     }
 
@@ -1129,7 +1196,7 @@ impl Evaluator {
         let result = (|| {
             self.file = def_file;
             self.bind_params(&def.params, args, &call_scope, def_scope, span)?;
-            self.trace.push(TraceFrame::CallOf {
+            self.pending_call_of = Some(TraceFrame::CallOf {
                 name: def.name.clone(),
                 args: def
                     .params
@@ -1162,6 +1229,7 @@ impl Evaluator {
             self.eval_block(&def.body, &call_scope, Some(&inner))
         })();
 
+        self.pending_call_of = None;
         self.module_names.pop();
         self.stack.truncate(base);
         self.trace.truncate(trace_base);
@@ -1533,21 +1601,45 @@ impl Evaluator {
             ExprKind::Member { target, member } => self
                 .eval_expr(target, scope)?
                 .member_with_swizzle(member, self.options.vector_swizzle),
-            ExprKind::Range { start, step, end } => {
-                let start = self.eval_expr(start, scope)?;
-                let step = match step {
+            ExprKind::Range {
+                start: start_expr,
+                step: step_expr,
+                end: end_expr,
+            } => {
+                let start = self.eval_expr(start_expr, scope)?;
+                let step = match step_expr {
                     Some(step) => self.eval_expr(step, scope)?,
                     None => Value::Number(1.0),
                 };
-                let end = self.eval_expr(end, scope)?;
+                let end = self.eval_expr(end_expr, scope)?;
+                // OpenSCAD checks the direction only of ranges written with
+                // number literals (`[0:1:-1]`), not computed ones
+                // (`[0:1:n-1]`, BOSL2's usual empty loop).
+                let literal = is_number_literal(start_expr)
+                    && step_expr.as_deref().is_none_or(is_number_literal)
+                    && is_number_literal(end_expr);
                 match (start, step, end) {
+                    (start, _, end)
+                        if !matches!(start, Value::Number(_))
+                            || !matches!(end, Value::Number(_)) =>
+                    {
+                        self.warning(
+                            format!(
+                                "Unable to convert [{}:...:{}] to a range",
+                                start.to_repr(),
+                                end.to_repr()
+                            ),
+                            expr.span,
+                        );
+                        Value::Undef
+                    }
                     (Value::Number(start), Value::Number(step), Value::Number(end)) => {
-                        if step > 0.0 && start > end {
+                        if literal && step > 0.0 && start > end {
                             self.warning(
                                 "begin is greater than the end, but step is positive",
                                 expr.span,
                             );
-                        } else if step < 0.0 && start < end {
+                        } else if literal && step < 0.0 && start < end {
                             self.warning(
                                 "begin is smaller than the end, but step is negative",
                                 expr.span,
@@ -1555,7 +1647,16 @@ impl Evaluator {
                         }
                         Value::Range(RangeValue { start, step, end })
                     }
-                    _ => Value::Undef,
+                    (_, step, _) => {
+                        self.warning(
+                            format!(
+                                "Unable to convert [...:{}:...] to a step value",
+                                step.to_repr()
+                            ),
+                            expr.span,
+                        );
+                        Value::Undef
+                    }
                 }
             }
             ExprKind::List(elements) => {
@@ -1729,6 +1830,24 @@ impl Evaluator {
                 self.warning(format!("Ignoring unknown function '{name}'"), callee.span);
                 return Ok(Tail::Value(Value::Undef));
             } else if builtins::functions::exists(name, &self.options) {
+                // `is_undef(x)` asks whether `x` exists: OpenSCAD gives no
+                // "unknown variable" warning for it.
+                if &**name == "is_undef"
+                    && let [
+                        Argument {
+                            name: None,
+                            value:
+                                Expr {
+                                    kind: ExprKind::Variable(var),
+                                    ..
+                                },
+                            ..
+                        },
+                    ] = args
+                {
+                    let value = self.find_variable(var, scope).unwrap_or_default();
+                    return Ok(Tail::Value(Value::Bool(value.is_undef())));
+                }
                 let values = self.eval_args(args, scope)?;
                 return builtins::functions::call(self, name, values, span).map(Tail::Value);
             } else {
@@ -1782,6 +1901,8 @@ impl Evaluator {
         let mut name = name;
         let mut call_span = span;
         let mut tail_calls = 0;
+        // 1 once a tail call left the `$` variables of its caller on the stack.
+        let mut base_extra = 0;
         let result = loop {
             tail_calls += 1;
             if tail_calls > MAX_TAIL_CALLS {
@@ -1790,7 +1911,7 @@ impl Evaluator {
                     call_span,
                 ));
             }
-            self.stack.truncate(base);
+            self.stack.truncate(base + base_extra);
             let current = callee.clone();
             let (params, body, def_scope, file) = match &current {
                 Callee::User(def, scope, file) => (&def.params, &def.body, scope, *file),
@@ -1805,6 +1926,17 @@ impl Evaluator {
             match step {
                 Ok(Tail::Value(value)) => break Ok(value),
                 Ok(Tail::Call(next, next_args, next_span, next_name)) => {
+                    // The next call replaces this one on the stack, but must
+                    // still see its `$` variables (`f(n, $fn = 24)` calling
+                    // itself in tail position): they are merged into one
+                    // scope, so deep recursion does not grow the stack.
+                    let carried = Scope::child(def_scope);
+                    for frame in &self.stack[base..] {
+                        frame.copy_special_vars_to(&carried);
+                    }
+                    self.stack.truncate(base);
+                    self.stack.push(carried);
+                    base_extra = 1;
                     self.trace.truncate(trace_base);
                     self.trace.push(TraceFrame::CalledBy {
                         name: next_name.clone(),
@@ -1868,20 +2000,33 @@ impl Evaluator {
                     self.bind_sequential(init, &current)?;
                     while self.eval_expr(condition, &current)?.is_truthy() {
                         self.eval_list_element(body, &current, out)?;
-                        // All updates see the values of the previous iteration.
-                        let next = Scope::child(scope);
-                        let mut updated = Vec::new();
+                        // Updates run in order, each seeing the ones before
+                        // it (`v = p[i+1] - p[i], c = v*v, i = i+1`); a name
+                        // updated twice keeps its first value, as in OpenSCAD.
+                        let step = Scope::child(&current);
+                        self.stack.push(step.clone());
                         for arg in update {
-                            updated.push((arg.name.clone(), self.eval_expr(&arg.value, &current)?));
-                        }
-                        for name in init.iter().filter_map(|a| a.name.as_ref()) {
-                            if let Some(value) = current.local_var(name) {
-                                next.set_var(name.clone(), value);
+                            let value = self.eval_expr(&arg.value, &step)?;
+                            let Some(name) = &arg.name else { continue };
+                            if step.has_local_var(name) {
+                                self.warning(
+                                    format!(
+                                        "Ignoring duplicate variable assignment \"{name}\" = {}",
+                                        value.to_repr()
+                                    ),
+                                    arg.span,
+                                );
+                            } else {
+                                step.set_var(name.clone(), value);
                             }
                         }
-                        for (name, value) in updated {
-                            if let Some(name) = name {
-                                next.set_var(name, value);
+                        let next = Scope::child(scope);
+                        let names = init.iter().chain(update).filter_map(|a| a.name.as_ref());
+                        for name in names {
+                            if let Some(value) =
+                                step.local_var(name).or_else(|| current.local_var(name))
+                            {
+                                next.set_var(name.clone(), value);
                             }
                         }
                         self.stack.truncate(base);
@@ -1947,5 +2092,65 @@ impl Evaluator {
             iterate(self, value, out)?;
         }
         Ok(())
+    }
+}
+
+/// `path` made absolute against the current folder, with `.` and `..`
+/// resolved without touching the disk. `None` without a current folder
+/// (WebAssembly).
+fn absolute(path: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+    let mut out = PathBuf::new();
+    for component in joined.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    return None;
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    Some(out)
+}
+
+/// How OpenSCAD names a file in messages: relative to the main file's
+/// folder, with `..` where needed (`../lib/x.scad`); absolute when no
+/// relative path exists (another drive). Always with `/`.
+pub(crate) fn display_path(path: &Path, main_dir: Option<&Path>) -> String {
+    let slashes = |p: &Path| p.display().to_string().replace('\\', "/");
+    let (Some(main_dir), Some(path)) = (main_dir, absolute(path)) else {
+        return slashes(path);
+    };
+    let base: Vec<_> = main_dir.components().collect();
+    let target: Vec<_> = path.components().collect();
+    let common = base.iter().zip(&target).take_while(|(a, b)| a == b).count();
+    if common == 0 {
+        return slashes(&path);
+    }
+    let mut parts = vec!["..".to_string(); base.len() - common];
+    parts.extend(
+        target[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
+    parts.join("/")
+}
+
+/// A number written in the code, possibly signed (`3`, `-1`, `-(-1)`).
+fn is_number_literal(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Number(_) => true,
+        ExprKind::Unary {
+            op: UnaryOp::Neg | UnaryOp::Plus,
+            operand,
+        } => is_number_literal(operand),
+        _ => false,
     }
 }

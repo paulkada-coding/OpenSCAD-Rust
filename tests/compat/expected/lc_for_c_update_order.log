@@ -1,0 +1,9 @@
+ECHO: 1, [[0, 0], [1, 1], [2, 11]]
+ECHO: 2, [[0, 5], [1, 1], [2, 2]]
+WARNING: Ignoring duplicate variable assignment "i" = 2 in file lc_for_c_update_order.scad, line 4
+WARNING: Ignoring duplicate variable assignment "i" = 3 in file lc_for_c_update_order.scad, line 4
+WARNING: Ignoring duplicate variable assignment "i" = 4 in file lc_for_c_update_order.scad, line 4
+ECHO: 3, [0, 1, 2]
+ECHO: 4, [[0, 1], [1, 1], [2, 1]]
+ECHO: 5, [[0, 0], [1, 0], [2, 1]]
+ECHO: 6, [0, 5, 9]

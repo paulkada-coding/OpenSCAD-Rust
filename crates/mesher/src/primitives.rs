@@ -218,7 +218,29 @@ pub struct PolyhedronResult {
 
 /// OpenSCAD's faces are clockwise seen from outside: they are reversed.
 /// Faces referring to missing points are dropped with OpenSCAD's warning.
+/// Points at exactly the same position become one vertex, as in OpenSCAD:
+/// libraries such as BOSL2 repeat points and close the surface only by
+/// position.
 pub fn polyhedron(points: &[DVec3], faces: &[Vec<usize>]) -> PolyhedronResult {
+    // `+ 0.0` makes -0 and 0 the same key.
+    let key = |p: DVec3| {
+        [
+            (p.x + 0.0).to_bits(),
+            (p.y + 0.0).to_bits(),
+            (p.z + 0.0).to_bits(),
+        ]
+    };
+    let mut first: std::collections::HashMap<[u64; 3], u32> = std::collections::HashMap::new();
+    let mut vertices = Vec::with_capacity(points.len());
+    let remap: Vec<u32> = points
+        .iter()
+        .map(|&p| {
+            *first.entry(key(p)).or_insert_with(|| {
+                vertices.push(p);
+                (vertices.len() - 1) as u32
+            })
+        })
+        .collect();
     let mut warnings = Vec::new();
     let mut out_faces = Vec::with_capacity(faces.len());
     'faces: for (fi, face) in faces.iter().enumerate() {
@@ -233,8 +255,9 @@ pub fn polyhedron(points: &[DVec3], faces: &[Vec<usize>]) -> PolyhedronResult {
         // Repeated consecutive points add nothing.
         let mut f: Vec<u32> = Vec::with_capacity(face.len());
         for &p in face.iter().rev() {
-            if f.last() != Some(&(p as u32)) {
-                f.push(p as u32);
+            let v = remap[p];
+            if f.last() != Some(&v) {
+                f.push(v);
             }
         }
         while f.len() > 1 && f.first() == f.last() {
@@ -246,7 +269,7 @@ pub fn polyhedron(points: &[DVec3], faces: &[Vec<usize>]) -> PolyhedronResult {
     }
     PolyhedronResult {
         polyset: PolySet {
-            vertices: points.to_vec(),
+            vertices,
             faces: out_faces,
         },
         warnings,

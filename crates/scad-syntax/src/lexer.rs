@@ -145,7 +145,11 @@ pub(crate) fn decode_string_literal(
     let mut iter = inner.char_indices();
     while let Some((slash_rel, c)) = iter.next() {
         if c != '\\' {
-            out.push(c);
+            // Line breaks typed inside the quotes are not part of the
+            // string (`"a⏎  b"` is `"a  b"`); `\n` escapes are.
+            if c != '\n' && c != '\r' {
+                out.push(c);
+            }
             continue;
         }
         let Some((esc_rel, kind)) = iter.next() else {

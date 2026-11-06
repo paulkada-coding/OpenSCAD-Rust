@@ -1,0 +1,12 @@
+WARNING: variable "triangles" not specified as parameter in file csg_polyhedron_faces.scad, line 2
+WARNING: Unable to convert faces = undef to a vector of vector of point indices in file csg_polyhedron_faces.scad, line 2
+WARNING: variable "triangles" not specified as parameter in file csg_polyhedron_faces.scad, line 3
+WARNING: Unable to convert faces = undef to a vector of vector of point indices in file csg_polyhedron_faces.scad, line 4
+WARNING: Unable to convert faces = 5 to a vector of vector of point indices in file csg_polyhedron_faces.scad, line 5
+WARNING: Unable to convert faces[0][2] = "a" to a number in file csg_polyhedron_faces.scad, line 6
+WARNING: Unable to convert faces[0] = 1 to a vector of numbers in file csg_polyhedron_faces.scad, line 7
+WARNING: Point index 18446744073709551614 is out of bounds (from faces[0][2]) in file csg_polyhedron_faces.scad, line 8
+WARNING: Point index 4 is out of bounds (from faces[1][2]) in file csg_polyhedron_faces.scad, line 9
+WARNING: Unable to convert faces = undef to a vector of vector of point indices in file csg_polyhedron_faces.scad, line 10
+WARNING: Unable to convert points = undef to a vector of coordinates in file csg_polyhedron_faces.scad, line 11
+WARNING: Unable to convert points = 7 to a vector of coordinates in file csg_polyhedron_faces.scad, line 12

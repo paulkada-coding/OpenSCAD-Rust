@@ -173,7 +173,12 @@ impl Value {
             (Self::List(a), Self::List(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
             }
-            (Self::Range(a), Self::Range(b)) => a == b,
+            // Unlike numbers, a range with NaN equals itself in OpenSCAD
+            // (BOSL2's `is_nan()` relies on it to tell ranges from NaN).
+            (Self::Range(a), Self::Range(b)) => {
+                let same = |x: f64, y: f64| x == y || (x.is_nan() && y.is_nan());
+                same(a.start, b.start) && same(a.step, b.step) && same(a.end, b.end)
+            }
             (Self::Function(a), Self::Function(b)) => Rc::ptr_eq(a, b),
             (Self::Object(a), Self::Object(b)) => {
                 a.len() == b.len()
@@ -200,6 +205,10 @@ impl Value {
                     }
                 }
                 Some(a.len().cmp(&b.len()))
+            }
+            // Ranges compare by begin, then step, then end.
+            (Self::Range(a), Self::Range(b)) => {
+                [a.start, a.step, a.end].partial_cmp(&[b.start, b.step, b.end])
             }
             _ => None,
         }
@@ -459,10 +468,11 @@ fn multiply_lists(a: &[Value], b: &[Value]) -> Value {
         if x.len() != y.len() {
             return None;
         }
-        x.iter()
-            .zip(y)
-            .map(|(p, q)| Some(p.as_number()? * q.as_number()?))
-            .sum()
+        // Summed from +0 like OpenSCAD, so `-0 + -0` terms give 0 (Rust's
+        // float `sum()` starts from -0).
+        x.iter().zip(y).try_fold(0.0, |sum, (p, q)| {
+            Some(sum + p.as_number()? * q.as_number()?)
+        })
     };
     let column = |m: &[Value], j: usize| -> Option<Vec<Value>> {
         m.iter().map(|row| row.as_list()?.get(j).cloned()).collect()
@@ -625,6 +635,25 @@ pub struct Arguments {
     pub named: Vec<(Name, Value)>,
     /// For each argument in source order, whether it was named.
     pub named_order: Vec<bool>,
+}
+
+impl Arguments {
+    /// Every value in source order, names dropped.
+    pub fn in_order(&self) -> Vec<Value> {
+        let mut positional = self.positional.iter();
+        let mut named = self.named.iter().map(|(_, v)| v);
+        self.named_order
+            .iter()
+            .filter_map(|&is_named| {
+                if is_named {
+                    named.next()
+                } else {
+                    positional.next()
+                }
+            })
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(test)]

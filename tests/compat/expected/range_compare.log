@@ -1,0 +1,7 @@
+ECHO: 1, true, false, true, true, false
+ECHO: 2, false, false, true, true, false
+ECHO: 3, true, false, false, false
+ECHO: 4, true, true, true, false
+WARNING: undefined operation (range < number) in file range_compare.scad, line 8
+WARNING: undefined operation (range < vector) in file range_compare.scad, line 8
+ECHO: 5, undef, undef

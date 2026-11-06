@@ -132,11 +132,11 @@ different triangulations and collinear vertices across runs (same volume to 1e-1
 pieces are unioned in parallel. `mink_nonconvex` therefore uses a cube as its second operand, which
 is deterministic (15/15 runs).
 
-## Cases (100)
+## Cases (101)
 
 | Prefix | Cases | Coverage |
 |---|---|---|
-| `prim_` | 23 | `cube` (scalar, vector, centered, tiny, zero dimension → empty), `sphere` (default, odd `$fn` and < 3, `$fa`/`$fs`, tiny and large radius, fine `$fs`), `cylinder` (default, `$fn` 6 and 500, `$fa` 1 on r = 500, tiny, cone, centered inverted cone, frustum with diameters and `$fs`), `polyhedron` (tetrahedron, quad faces, square-base pyramid, reversed-winding faces) |
+| `prim_` | 24 | `cube` (scalar, vector, centered, tiny, zero dimension → empty), `sphere` (default, odd `$fn` and < 3, `$fa`/`$fs`, tiny and large radius, fine `$fs`), `cylinder` (default, `$fn` 6 and 500, `$fa` 1 on r = 500, tiny, cone, centered inverted cone, frustum with diameters and `$fs`), `polyhedron` (tetrahedron, quad faces, square-base pyramid, reversed-winding faces, points repeated at the same position) |
 | `twod_` | 6 | extruded 2D primitives: square + circle, circle with `$fa`/`$fs`, polygon with hole (`paths`), concave star, overlapping paths (overlap becomes a hole), disjoint islands |
 | `xf_` | 8 | `translate`/`rotate` on three axes, axis-angle rotation, non-uniform `scale` + `mirror`, negative scale, `multmatrix` (shear, 3×4 matrix), `resize`, `resize` with `auto`, `color` |
 | `bool_` | 11 | union, difference, intersection, coplanar faces (difference and union), edge-touching cubes, three orthogonal holes, empty result, implicit union in `for`, `intersection_for`, nested booleans |

@@ -1,0 +1,3 @@
+ERROR: Assertion 'false' failed: "z" in file err_trace_if_condition.scad, line 1
+TRACE: called by 'f' in file err_trace_if_condition.scad, line 4
+TRACE: called by 'if' in file err_trace_if_condition.scad, line 4

@@ -69,7 +69,8 @@ fn signature(name: &str) -> Option<(&'static [&'static str], &'static [&'static 
         "cube" | "square" => (&["size", "center"], &[]),
         "sphere" => (&["r"], &["d", "style"]),
         "cylinder" => (&["h", "r1", "r2", "center"], &["r", "d", "d1", "d2"]),
-        "polyhedron" => (&["points", "faces", "convexity"], &["triangles"]),
+        // `triangles` (the old name of `faces`) is no longer accepted.
+        "polyhedron" => (&["points", "faces", "convexity"], &[]),
         "circle" => (&["r"], &["d"]),
         "polygon" => (&["points", "paths", "convexity"], &[]),
         "translate" | "scale" | "mirror" => (&["v"], &[]),
@@ -320,11 +321,17 @@ pub fn instantiate(
                     Vec::new()
                 }
             };
-            let faces = p
-                .get("faces")
-                .or_else(|| p.get("triangles"))
-                .map(index_lists)
-                .unwrap_or_default();
+            // Faces are checked only once the points are valid.
+            let faces = if points_val.as_list().is_some() {
+                polyhedron_faces(
+                    ev,
+                    p.get("faces").unwrap_or(&Value::Undef),
+                    points.len(),
+                    span,
+                )
+            } else {
+                Vec::new()
+            };
             leaf(NodeKind::Polyhedron {
                 points,
                 faces,
@@ -881,6 +888,65 @@ fn radius(ev: &mut Evaluator, p: &Params<'_>, span: Span) -> f64 {
         (Some(r), None) => r,
         (None, None) => 1.0,
     }
+}
+
+/// `polyhedron(faces=…)`: a face with a value that is not a number or a
+/// point index out of bounds is dropped, with OpenSCAD's warnings. Indices
+/// are truncated; a negative one wraps around like OpenSCAD's unsigned
+/// conversion, so it is out of bounds.
+fn polyhedron_faces(
+    ev: &mut Evaluator,
+    faces: &Value,
+    points: usize,
+    span: Span,
+) -> Vec<Vec<usize>> {
+    let Some(rows) = faces.as_list() else {
+        ev.warning(
+            format!(
+                "Unable to convert faces = {} to a vector of vector of point indices",
+                faces.to_repr()
+            ),
+            span,
+        );
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(rows.len());
+    'faces: for (i, row) in rows.iter().enumerate() {
+        let Some(items) = row.as_list() else {
+            ev.warning(
+                format!(
+                    "Unable to convert faces[{i}] = {} to a vector of numbers",
+                    row.to_repr()
+                ),
+                span,
+            );
+            continue;
+        };
+        let mut face = Vec::with_capacity(items.len());
+        for (j, item) in items.iter().enumerate() {
+            let Some(n) = item.as_number() else {
+                ev.warning(
+                    format!(
+                        "Unable to convert faces[{i}][{j}] = {} to a number",
+                        item.to_repr()
+                    ),
+                    span,
+                );
+                continue 'faces;
+            };
+            let index = n.trunc() as i64 as u64;
+            if index >= points as u64 {
+                ev.warning(
+                    format!("Point index {index} is out of bounds (from faces[{i}][{j}])"),
+                    span,
+                );
+                continue 'faces;
+            }
+            face.push(index as usize);
+        }
+        out.push(face);
+    }
+    out
 }
 
 fn index_lists(value: &Value) -> Vec<Vec<usize>> {

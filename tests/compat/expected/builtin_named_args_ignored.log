@@ -1,0 +1,28 @@
+ECHO: 0.5, 2, [1, 2, 3], 5, "xy"
+ECHO: 8, 2, 5, []
+ECHO: 3, true, "A", 45
+WARNING: sin() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 5
+WARNING: len() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 5
+ECHO: undef, [1, 2], undef
+WARNING: len() number of parameters does not match: expected 1, found 0 in file builtin_named_args_ignored.scad, line 6
+WARNING: ord() number of parameters does not match: expected 1, found 0 in file builtin_named_args_ignored.scad, line 6
+WARNING: ord() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 6
+WARNING: is_num() number of parameters does not match: expected 1, found 0 in file builtin_named_args_ignored.scad, line 6
+WARNING: is_num() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 6
+ECHO: undef, "", [], "", undef, undef, undef, undef
+WARNING: is_undef() number of parameters does not match: expected 1, found 0 in file builtin_named_args_ignored.scad, line 7
+WARNING: is_bool() number of parameters does not match: expected 1, found 0 in file builtin_named_args_ignored.scad, line 7
+WARNING: is_string() number of parameters does not match: expected 1, found 0 in file builtin_named_args_ignored.scad, line 7
+WARNING: is_list() number of parameters does not match: expected 1, found 0 in file builtin_named_args_ignored.scad, line 7
+WARNING: is_function() number of parameters does not match: expected 1, found 0 in file builtin_named_args_ignored.scad, line 7
+ECHO: undef, undef, undef, undef, undef
+WARNING: is_undef() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 8
+WARNING: is_bool() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 8
+WARNING: is_string() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 8
+WARNING: is_list() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 8
+WARNING: is_function() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 8
+ECHO: undef, undef, undef, undef, undef
+WARNING: parent_module() number of parameters does not match: expected 1, found 2 in file builtin_named_args_ignored.scad, line 9
+WARNING: parent_module() number of parameters does not match: expected 1, found 3 in file builtin_named_args_ignored.scad, line 9
+WARNING: rands() number of parameters does not match: expected 3 or 4, found 5 in file builtin_named_args_ignored.scad, line 9
+ECHO: undef, undef, undef

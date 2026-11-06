@@ -540,10 +540,7 @@ fn emit_message(evaluator: &Evaluator, message: &Message, echo_mode: bool, log_b
         (Some(file), Some(line)) => evaluator
             .files()
             .get(file as usize)
-            .map(|f| {
-                let path = f.path.display().to_string().replace('\\', "/");
-                format!(" in file {path}, line {line}")
-            })
+            .map(|f| format!(" in file {}, line {line}", f.display))
             .unwrap_or_default(),
         _ => String::new(),
     };

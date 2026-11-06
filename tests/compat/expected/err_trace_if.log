@@ -1,0 +1,6 @@
+ERROR: Assertion 'false' failed: "f" in file err_trace_if.scad, line 3
+TRACE: called by 'assert' in file err_trace_if.scad, line 3
+TRACE: called by 'if' in file err_trace_if.scad, line 3
+TRACE: called by 'if' in file err_trace_if.scad, line 2
+TRACE: call of 'm()' in file err_trace_if.scad, line 2
+TRACE: called by 'm' in file err_trace_if.scad, line 4

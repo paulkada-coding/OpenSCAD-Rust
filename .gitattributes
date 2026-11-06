@@ -4,3 +4,5 @@
 *.png binary
 *.ttf binary
 *.otf binary
+# Keeps the CR typed inside a string literal (test data).
+tests/compat/cases/lex_string_raw_newline.scad -text

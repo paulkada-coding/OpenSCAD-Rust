@@ -1,0 +1,5 @@
+WARNING: Unable to convert translate([0, 0, undef]) parameter to a vec3 or vec2 of numbers in file csg_param_warning_order.scad, line 2
+ECHO: "child of translate"
+WARNING: Unable to convert scale(undef) parameter to a number or a vec3 or vec2 of numbers in file csg_param_warning_order.scad, line 7
+ECHO: "child of scale"
+WARNING: Unable to convert translate([0, 0, undef]) parameter to a vec3 or vec2 of numbers in file csg_param_warning_order.scad, line 7

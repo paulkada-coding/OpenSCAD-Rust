@@ -1,0 +1,4 @@
+ECHO: "a  b", 4
+ECHO: "cd", 2
+ECHO: 3, "g	h"
+ECHO: 2

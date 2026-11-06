@@ -65,11 +65,14 @@ Manifold kernel ported first ([docs/web.md](docs/web.md)).
 
 | Suite | Cases | Result |
 |---|---|---|
-| Text (messages + CSG tree, byte for byte) | 218 | **218/218** identical |
+| Text (messages + CSG tree, byte for byte) | 236 | **236/236** identical |
 | Customizer (`.param` export, presets, messages) | 17 | **17/17** identical |
-| Geometry (volume, area, bounding box, mesh vertices) | 100 | 39 identical, 60 equivalent, 1 known difference |
+| Geometry (volume, area, bounding box, mesh vertices) | 101 | 40 identical, 60 equivalent, 1 known difference |
+| [BOSL2](https://github.com/BelfrySCAD/BOSL2) regression tests (messages + CSG tree) | 985 | **976/985** identical (99.1%) |
 
-The known difference (`linear_extrude` with a non-uniform `scale`) is a 0.01% difference in area.
+The known geometry difference (`linear_extrude` with a non-uniform `scale`) is a 0.01% difference
+in area. The 9 BOSL2 tests that differ do so only in the last digit of some numbers (or the sign
+of a zero) in the exported tree; on BOSL2 models the engine is about twice as fast as OpenSCAD.
 
 ## Requirements
 

@@ -27,7 +27,7 @@ tests/compat/
                                    (ABSENT if OpenSCAD writes no file, e.g. parse errors)
 ```
 
-Topic prefixes (218 cases):
+Topic prefixes (236 cases):
 
 | Prefix | Cases | Coverage |
 |---|---|---|
@@ -35,15 +35,15 @@ Topic prefixes (218 cases):
 | `str_` | 8 | `str`, `chr`, `ord`, string indexing, escapes |
 | `num_` | 9 | arithmetic, modulo, division by zero, `round`, `min`/`max`, large integers |
 | `trig_` | 4 | exact sin/cos/tan values, signed zeros, inverse functions |
-| `op_` | 10 | vector/matrix operations, comparisons, truthiness, bitwise, undefined operations |
-| `index_` / `range_` | 4 / 7 | indexing, `.x/.y/.z`, decimal-step ranges, reversed ranges, limits |
-| `lc_` / `let_` / `expr_` | 5 / 2 / 1 | list comprehensions, `let`, `echo`/`assert` as expressions |
-| `scope_` / `special_` | 10 / 9 | reassignment, evaluation order, `$` variables, `$children`, `parent_module` |
-| `include_` / `use_` | 4 / 2 | `include` and `use` semantics |
-| `func_` / `module_` | 13 / 9 | functions, function literals, arguments, recursion, modules, `children()` |
-| `builtin_` | 15 | built-in functions (`len`, `concat`, `lookup`, `search`, `rands`, `is_*`, objects…) |
-| `err_` / `lex_` | 16 / 4 | `assert`, parse errors, comments, identifiers, deprecated modules, UTF-8 byte order mark |
-| `csg_` | 56 | CSG export of every built-in module, transforms, modifiers, number formatting |
+| `op_` | 11 | vector/matrix operations, comparisons, truthiness, bitwise, undefined operations |
+| `index_` / `range_` | 4 / 10 | indexing, `.x/.y/.z`, decimal-step ranges, reversed ranges, limits, warnings, comparisons |
+| `lc_` / `let_` / `expr_` | 6 / 2 / 1 | list comprehensions, `let`, `echo`/`assert` as expressions |
+| `scope_` / `special_` | 10 / 10 | reassignment, evaluation order, `$` variables, `$children`, `parent_module` |
+| `include_` / `use_` | 5 / 2 | `include` and `use` semantics, file names in messages |
+| `func_` / `module_` | 14 / 9 | functions, function literals, arguments, recursion, modules, `children()` |
+| `builtin_` | 18 | built-in functions (`len`, `concat`, `lookup`, `search`, `rands`, `is_*`, objects…) |
+| `err_` / `lex_` | 20 / 5 | `assert`, parse errors, TRACE frames, comments, identifiers, deprecated modules, UTF-8 byte order mark, line breaks in strings |
+| `csg_` | 58 | CSG export of every built-in module, transforms, modifiers, number formatting |
 | `model_` | 12 | multi-feature real-world models (parametric box, gear, bracket, vase, `porta_carte`, `separatore`…) |
 
 ### `compat-args` directive

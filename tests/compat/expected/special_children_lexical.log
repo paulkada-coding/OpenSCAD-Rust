@@ -1,0 +1,9 @@
+ECHO: "poly", 0, 1, 2
+ECHO: "nested", 0
+ECHO: "poly", 1, 1, 2
+ECHO: "nested", 1
+WARNING: Ignoring unknown variable "$children" in file special_children_lexical.scad, line 7
+ECHO: "top", undef
+ECHO: "outer", 2
+ECHO: "no children"
+ECHO: "has children"

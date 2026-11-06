@@ -1,0 +1,6 @@
+ECHO: true, true, true
+ECHO: 0
+WARNING: Ignoring unknown variable "nope4" in file builtin_is_undef_unknown.scad, line 5
+WARNING: undefined operation (undefined + number) in file builtin_is_undef_unknown.scad, line 5
+ECHO: true
+ECHO: 0, 0.2

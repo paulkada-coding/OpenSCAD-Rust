@@ -1,0 +1,10 @@
+ECHO: 1, [0 : 1 : -1], [0 : 1 : -1], [0 : 1 : -1], [-1 : -1 : 3], [3.14159 : 1 : 1]
+WARNING: begin is greater than the end, but step is positive in file range_literal_direction_warnings.scad, line 5
+WARNING: begin is greater than the end, but step is positive in file range_literal_direction_warnings.scad, line 5
+WARNING: begin is smaller than the end, but step is negative in file range_literal_direction_warnings.scad, line 5
+WARNING: begin is greater than the end, but step is positive in file range_literal_direction_warnings.scad, line 5
+WARNING: begin is greater than the end, but step is positive in file range_literal_direction_warnings.scad, line 5
+WARNING: begin is smaller than the end, but step is negative in file range_literal_direction_warnings.scad, line 5
+ECHO: 2, [0 : 1 : -1], [2 : 1 : 0], [2 : -1 : 3], [3 : 1 : 1], [3 : 1 : 1], [0 : -1 : 1]
+ECHO: 3, [], []
+WARNING: begin is greater than the end, but step is positive in file range_literal_direction_warnings.scad, line 9

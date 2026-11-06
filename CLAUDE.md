@@ -71,9 +71,9 @@ crates/
   ai/              (to do) Claude/Gemini providers, tools
   app/             egui UI: menu, code editor (highlighting, live evaluation of the buffer), model panel, click on the model → code (selection), Customizer ("Parameters") panel + presets, viewport, status bar, persistent settings
 tools/
-  compat-runner/   automatic parallel comparison with OpenSCAD Nightly's expected outputs (text, `--params`, `--geometry`)
+  compat-runner/   automatic parallel comparison with OpenSCAD Nightly's expected outputs (text, `--params`, `--geometry`, `--scadtest <library>`)
 examples/          sample .scad files (+ STL generated with OpenSCAD)
-tests/compat/      text suite (218 `.csg`/`.log` cases) + `params/` (17 `.param`/`.log` cases) + `geometry/` (100 cases with OpenSCAD mesh metrics)
+tests/compat/      text suite (236 `.csg`/`.log` cases) + `params/` (17 `.param`/`.log` cases) + `geometry/` (101 cases with OpenSCAD mesh metrics)
 ```
 
 Rendering notes:
@@ -99,7 +99,7 @@ Principles:
 3. [x] **First render** — 3D primitives, transformations, Manifold booleans, STL export (**99/100 geometry cases**)
 4. [x] **Customizer** — parameters from `// [min:step:max]` comments, `.param` export (**17/17 — 100%**), sliders, `<stem>.json` presets (`-p`/`-P`), live debounced rendering, CST "Apply to file" (merged 2026-11-01)
 5. [ ] **2D and advanced** — done in M3: extrude, offset, hull, minkowski, text, STL/OFF import, `.dat` surface. Missing: SVG/DXF/3MF/OBJ import, PNG surface, `linear_extrude` subdivision rule with non-uniform scale, "octa" sphere with `$fn > 12`
-6. [ ] **Compatibility** — MCAD, BOSL2, corpus of real models
+6. [ ] **Compatibility** — BOSL2 regression tests **976/985 (99.1%)**, MCAD 35/36; missing: geometry on BOSL2 examples, corpus of real models
 7. [ ] **AI** — Claude/Gemini panel with tool use
 8. [ ] **Direct modelling**
 
@@ -238,6 +238,13 @@ Principles:
   selects the innermost code under it (`selection::Provenance::select_at`), shown in blue on the
   model, in the editor and in the model panel. Verified: fmt/clippy/tests clean (new unit test)
   and by the user in the app on Windows; merged into `main` (fast-forward).
+- 2026-11-06: **milestone 6 started on branch `m6-libraries`** (on the user's work PC, see
+  "Development environment"). BOSL2 and MCAD cloned in `D:\Software\Personal\OpenSCAD-libraries`;
+  `compat-runner --scadtest <library>` runs a library's `openscad-test` regression tests.
+  BOSL2 from 64.4% to **976/985 (99.1%)**, MCAD 35/36, text suite 236/236 (18 new cases, one per
+  behavior fixed), geometry 40/60/1 (new case: repeated polyhedron points). Details and remaining
+  differences in `docs/next-steps.md` §3.5. About twice as fast as OpenSCAD on BOSL2 models.
+  The direct modeling ideas discussed with the user are in `docs/next-steps.md` §3.7.
 
 ## Notes for the next milestones
 
@@ -285,6 +292,14 @@ The `out/` folder is ignored by git: use it for temporary output.
 
 ## Development environment
 
+- Two PCs. Since 2026-11-06 the user also works on a work PC (`SWA-CAPRIATI`, documents
+  folder on a company OneDrive: keep libraries and outputs off it). There OpenSCAD Nightly
+  **2026.10.31** was installed with `winget install OpenSCAD.OpenSCAD.Nightly` (same path,
+  `openscad.com` is the console binary); its output matches the 2026.10.22 expected files
+  except `version()`, so expected files must not be regenerated wholesale (use `--filter`).
+  Libraries: `D:\Software\Personal\OpenSCAD-libraries\{BOSL2,MCAD}` (git clones).
+  The `Remove-Item` PowerShell cmdlet is blocked on paths under `C:\Program…`-like prefixes by
+  the session sandbox: delete scratch files with Bash `rm`.
 - Windows 11 Pro, PowerShell 5.1 shell.
 - GPU: NVIDIA GeForce RTX 5080 + integrated AMD Radeon.
 - Rust 1.99.1 stable, `x86_64-pc-windows-msvc` toolchain (clippy, rustfmt included).

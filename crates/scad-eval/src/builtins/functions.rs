@@ -73,7 +73,8 @@ const VERSION: [f64; 3] = [2026.0, 10.0, 22.0];
 fn arity(name: &str) -> Option<usize> {
     match name {
         "abs" | "sign" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "floor" | "ceil"
-        | "round" | "ln" | "exp" | "sqrt" | "norm" => Some(1),
+        | "round" | "ln" | "exp" | "sqrt" | "norm" | "len" | "ord" | "is_undef" | "is_bool"
+        | "is_num" | "is_string" | "is_list" | "is_function" | "parent_module" => Some(1),
         "atan2" | "pow" | "lookup" | "cross" | "log" | "has_key" => Some(2),
         _ => None,
     }
@@ -99,9 +100,16 @@ fn conversion_warning(
 }
 
 pub fn call(ev: &mut Evaluator, name: &str, args: Arguments, span: Span) -> EvalResult<Value> {
-    let a = &args.positional;
+    // Like OpenSCAD, the classic builtins ignore argument names and take
+    // the values in the order written: `search([k], l,
+    // num_returns_per_match = 1)` and `sin(x = 30)` both work. `object()`,
+    // `fontmetrics()` and `textmetrics()` read `args` by name.
+    let ordered = args.in_order();
+    let a = &ordered;
     if let Some(expected) = arity(name) {
-        let accepted = a.len() == expected || (name == "log" && a.len() == 1);
+        let accepted = a.len() == expected
+            || (name == "log" && a.len() == 1)
+            || (name == "parent_module" && a.is_empty());
         if !accepted {
             ev.warning(
                 format!(
@@ -556,12 +564,15 @@ fn search(ev: &mut Evaluator, args: &[Value], span: Span) -> Value {
             }
         }
     }
-    // A list target is compared with whole rows, anything else with the
-    // row's `column` entry.
+    // A row matches through its `column` entry; a list target also matches
+    // a whole row equal to it (`search([[5,4]], [[5,4], [[5,4],3]])` finds
+    // both, BOSL2's `struct_val()` relies on the second).
     let matches = |item: &Value, target: &Value| -> bool {
-        match (item, target) {
-            (Value::List(_), Value::List(_)) => item.equals(target),
-            (Value::List(row), _) => row.get(column).is_some_and(|v| v.equals(target)),
+        match item {
+            Value::List(row) => {
+                (matches!(target, Value::List(_)) && item.equals(target))
+                    || row.get(column).is_some_and(|v| v.equals(target))
+            }
             _ => item.equals(target),
         }
     };

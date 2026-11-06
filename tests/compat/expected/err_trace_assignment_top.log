@@ -1,0 +1,3 @@
+ERROR: Assertion '(a > 0)' failed: "neg" in file err_trace_assignment_top.scad, line 1
+TRACE: called by 'f' in file err_trace_assignment_top.scad, line 3
+TRACE: assignment to "x" in file err_trace_assignment_top.scad, line 3

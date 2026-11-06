@@ -1,0 +1,12 @@
+WARNING: Unable to convert [0:...:"x"] to a range in file range_conversion_warnings.scad, line 2
+WARNING: Unable to convert [0:...:"x"] to a range in file range_conversion_warnings.scad, line 2
+WARNING: Unable to convert ["a":...:"b"] to a range in file range_conversion_warnings.scad, line 2
+ECHO: 1, undef, undef, undef
+WARNING: Unable to convert [undef:...:1] to a range in file range_conversion_warnings.scad, line 3
+WARNING: Unable to convert [...:undef:...] to a step value in file range_conversion_warnings.scad, line 3
+WARNING: Unable to convert [[1, 2]:...:3] to a range in file range_conversion_warnings.scad, line 3
+ECHO: 2, undef, undef, undef
+WARNING: Unable to convert [0:...:"x"] to a range in file range_conversion_warnings.scad, line 4
+WARNING: Unable to convert [...:true:...] to a step value in file range_conversion_warnings.scad, line 4
+WARNING: Unable to convert ["a":...:0] to a range in file range_conversion_warnings.scad, line 4
+ECHO: 3, undef, undef, undef

@@ -11,6 +11,7 @@ mod geometry;
 mod json;
 mod metrics;
 mod normalize;
+mod scadtest;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -61,6 +62,13 @@ PARAMS MODE:
     --params              export Customizer parameters (-o <name>.param) on
                           tests/compat/params and compare exact .param JSON + .log
 
+LIBRARY TESTS MODE:
+    --scadtest <LIBRARY>  turn <LIBRARY>/tests/*.scadtest (openscad-test format, e.g.
+                          BOSL2) into one case per test in
+                          <workspace>/target/scadtest/<library name>/cases, then run them
+                          like the text corpus (expected files in .../expected: create
+                          them once with --update-expected)
+
 Exit code: 0 if every case passes (geometry: EXACT or EQUIVALENT; or every update
 succeeds), 1 otherwise, 2 on usage errors.
 ";
@@ -81,6 +89,8 @@ struct Options {
     tolerances: geometry::Tolerances,
     ignore_log: bool,
     strict: bool,
+    /// `--scadtest`: the library whose tests become the cases.
+    scadtest: Option<PathBuf>,
 }
 
 fn workspace_root() -> PathBuf {
@@ -114,6 +124,7 @@ fn default_options() -> Options {
         tolerances: geometry::Tolerances::default(),
         ignore_log: false,
         strict: false,
+        scadtest: None,
     }
 }
 
@@ -174,6 +185,7 @@ fn parse_args() -> Result<Options, String> {
             "--cases" => cases_dir = Some(PathBuf::from(value("--cases")?)),
             "--expected" => expected_dir = Some(PathBuf::from(value("--expected")?)),
             "--out-dir" => o.out_dir = PathBuf::from(value("--out-dir")?),
+            "--scadtest" => o.scadtest = Some(PathBuf::from(value("--scadtest")?)),
             "-h" | "--help" => {
                 print!("{USAGE}");
                 std::process::exit(0);
@@ -181,10 +193,21 @@ fn parse_args() -> Result<Options, String> {
             other => return Err(format!("unknown argument: {other}")),
         }
     }
-    if o.geometry && o.params {
-        return Err("--geometry and --params cannot be used together".into());
+    if [o.geometry, o.params, o.scadtest.is_some()]
+        .iter()
+        .filter(|&&on| on)
+        .count()
+        > 1
+    {
+        return Err("--geometry, --params and --scadtest cannot be used together".into());
     }
-    let corpus = if o.geometry {
+    let corpus = if let Some(library) = &o.scadtest {
+        let name = std::path::absolute(library)
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "library".into());
+        root.join("target").join("scadtest").join(name)
+    } else if o.geometry {
         root.join("tests").join("compat").join("geometry")
     } else if o.params {
         root.join("tests").join("compat").join("params")
@@ -651,6 +674,19 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if let Some(library) = &o.scadtest {
+        match scadtest::extract(library, &o.cases_dir) {
+            Ok(n) => println!(
+                "{n} tests of {} in {}",
+                library.display(),
+                o.cases_dir.display()
+            ),
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    }
     let cases = match discover_cases(&o) {
         Ok(c) => c,
         Err(e) => {

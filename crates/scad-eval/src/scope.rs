@@ -48,6 +48,15 @@ impl Scope {
         self.vars.borrow().contains_key(name)
     }
 
+    /// Copies this scope's own `$` variables into `target`.
+    pub fn copy_special_vars_to(&self, target: &Scope) {
+        for (name, value) in self.vars.borrow().iter() {
+            if name.starts_with('$') {
+                target.set_var(name.clone(), value.clone());
+            }
+        }
+    }
+
     /// Lexical lookup through the parent chain.
     pub fn lookup_var(&self, name: &str) -> Option<Value> {
         let mut scope = self;
