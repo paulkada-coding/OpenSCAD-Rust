@@ -33,6 +33,8 @@ pub struct ConsoleLine {
 pub struct JobResult {
     pub generation: u64,
     pub path: PathBuf,
+    /// Editor revision of the evaluated text (see [`Worker::submit`]).
+    pub revision: u64,
     pub console: Vec<ConsoleLine>,
     /// `None` when evaluation or meshing failed or was cancelled.
     pub output: Option<RenderOutput>,
@@ -48,6 +50,9 @@ pub struct JobResult {
 struct Job {
     generation: u64,
     path: PathBuf,
+    /// The code to run; `None` reads `path` from disk.
+    source: Option<String>,
+    revision: u64,
     defines: Vec<(String, String)>,
     cancel: Arc<AtomicBool>,
 }
@@ -88,8 +93,16 @@ impl Worker {
         }
     }
 
-    /// Queues a (re)evaluation and returns its generation number.
-    pub fn submit(&mut self, path: PathBuf, defines: Vec<(String, String)>) -> u64 {
+    /// Queues a (re)evaluation of `source`, the code of `path` (read from
+    /// disk when `None`), and returns its generation number. `revision`
+    /// comes back in the result, to tell which text it belongs to.
+    pub fn submit(
+        &mut self,
+        path: PathBuf,
+        source: Option<String>,
+        revision: u64,
+        defines: Vec<(String, String)>,
+    ) -> u64 {
         if let Some(cancel) = self.current_cancel.take() {
             cancel.store(true, Ordering::Relaxed);
         }
@@ -99,6 +112,8 @@ impl Worker {
         let _ = self.jobs.send(Job {
             generation: self.generation,
             path,
+            source,
+            revision,
             defines,
             cancel,
         });
@@ -114,6 +129,7 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
     let mut result = JobResult {
         generation: job.generation,
         path: job.path.clone(),
+        revision: job.revision,
         console: Vec::new(),
         output: None,
         provenance: None,
@@ -121,7 +137,11 @@ fn run_job(job: &Job, cache: &SourceCache) -> JobResult {
         eval_time: Duration::ZERO,
         mesh_time: Duration::ZERO,
     };
-    let text = match std::fs::read_to_string(&job.path) {
+    let read = match &job.source {
+        Some(text) => Ok(text.clone()),
+        None => std::fs::read_to_string(&job.path),
+    };
+    let text = match read {
         Ok(text) => text,
         Err(err) => {
             result.console.push(ConsoleLine {

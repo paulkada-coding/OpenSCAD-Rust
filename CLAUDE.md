@@ -69,7 +69,7 @@ crates/
   viewer/          egui viewport widget (Scene + camera + mouse + picking rays), shared by `app` and `web-viewer`
   web-viewer/      wasm32 cdylib: the viewer in a web page (`eframe` web, WebGPU → WebGL 2), JS API `WebViewer` (`load_stl`, `set_mesh`); `www/index.html`; empty on native
   ai/              (to do) Claude/Gemini providers, tools
-  app/             egui UI: menu, model panel, click on the model → code (selection), Customizer ("Parameters") panel + presets, viewport, status bar, persistent settings
+  app/             egui UI: menu, code editor (highlighting, live evaluation of the buffer), model panel, click on the model → code (selection), Customizer ("Parameters") panel + presets, viewport, status bar, persistent settings
 tools/
   compat-runner/   automatic parallel comparison with OpenSCAD Nightly's expected outputs (text, `--params`, `--geometry`)
 examples/          sample .scad files (+ STL generated with OpenSCAD)
@@ -225,8 +225,15 @@ Principles:
     the app was driven under Xvfb with Mesa lavapipe on `porta_carte.scad` (selection, chain
     levels, Customizer change keeping the selection, Esc, click beside the model).
 - 2026-11-06: the user verified click → code on Windows; branch `claude/vibrant-rubin-sc5ljg`
-  (WebAssembly preparation + click → code) merged into `main` (fast-forward). Next suggested
-  step: integrated editor (next-steps §3.2).
+  (WebAssembly preparation + click → code) merged into `main` (fast-forward).
+- 2026-11-06: **integrated editor (next-steps §3.2) on branch `editor`.** New
+  `crates/app/src/editor.rs`: code panel colored by our lexer, line numbers, underlined parse
+  errors, Ctrl+S, unsaved-changes question (open/quit), "changed on disk" bar. The buffer is what
+  gets evaluated (live after a 300 ms pause, can be turned off in Settings → Editor); the
+  Customizer reads the buffer and "Apply to file" edits it; click on the model → code in blue in
+  the editor, cursor moved there. BOM/CRLF preserved, non-UTF-8 files read-only. Verified:
+  fmt/clippy/tests clean (new unit tests for encoding, highlighting, errors). Not yet seen on
+  screen (the PC was locked): to be tried by the user.
 
 ## Notes for the next milestones
 
@@ -287,3 +294,7 @@ The `out/` folder is ignored by git: use it for temporary output.
   An old OpenSCAD 2021.01 also exists in `C:\Program Files\OpenSCAD` (preinstalled, do not use).
 - Shells opened before an installation do not see the new PATH: reopen them or reload
   `$env:Path` from the registry.
+- Since 2026-11-06 the `cmake` crate picks Visual Studio 2026 (now installed), which clashes with
+  the Manifold build cache made with 2022: build with `$env:CMAKE_GENERATOR = 'Visual Studio 17
+  2022'` (or delete `target\debug\build\manifold-*`). Not set in `.cargo/config.toml`, so Linux
+  builds are unaffected.

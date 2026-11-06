@@ -1,6 +1,7 @@
-//! Main window: menus, model info panel, console, status bar and the 3D
-//! viewport. `.scad` files are evaluated in the background and reloaded
-//! automatically when they (or their includes) change on disk.
+//! Main window: menus, code editor, model info panel, console, status bar
+//! and the 3D viewport. `.scad` code is evaluated in the background from the
+//! editor's text, while typing and when the file (or its includes) changes
+//! on disk.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -15,12 +16,14 @@ use mesher::{RenderOutput, Shape};
 use render::{LayerKind, LayerMesh, Projection, ViewPreset};
 
 use crate::customizer::{self, CustomizerEvent, CustomizerState, PersistedCustomizer};
+use crate::editor::{self, Editor, EditorEvent};
 use crate::selection::{self, Provenance, Selection, SelectionEvent};
 use crate::settings::{self, FrameRate, PanelSide, Settings};
 use crate::worker::{ConsoleLine, JobResult, LineKind, Worker, modified_time};
 use viewer::{PickRay, Viewport};
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
 const EXPORT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::E);
 const RELOAD: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F5);
 const FIT: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F);
@@ -60,6 +63,10 @@ impl Stats {
 struct Document {
     path: PathBuf,
     kind: DocumentKind,
+    /// The code (`.scad` only).
+    editor: Option<Editor>,
+    /// Editor revision of the code behind `provenance`.
+    evaluated_revision: u64,
     /// The exportable solid, when the result is 3D.
     solid: Option<Mesh>,
     /// Which code produced each triangle of `solid` (`.scad` only).
@@ -79,11 +86,13 @@ struct Document {
 }
 
 impl Document {
-    fn new(path: PathBuf, kind: DocumentKind) -> Self {
+    fn new(path: PathBuf, kind: DocumentKind, editor: Option<Editor>) -> Self {
         Self {
             dependencies: vec![(path.clone(), modified_time(&path))],
             path,
             kind,
+            editor,
+            evaluated_revision: 0,
             solid: None,
             provenance: None,
             selection: None,
@@ -106,6 +115,13 @@ enum Status {
     Error(String),
 }
 
+/// What to do once the unsaved changes question is answered.
+#[derive(Debug, Clone)]
+enum AfterUnsaved {
+    Open(PathBuf),
+    Quit,
+}
+
 pub struct ViewerApp {
     render_state: egui_wgpu::RenderState,
     viewport: Viewport,
@@ -117,6 +133,11 @@ pub struct ViewerApp {
     loading_stl: Option<PendingStl>,
     console: Vec<ConsoleLine>,
     show_console: bool,
+    show_editor: bool,
+    /// Asking whether to save the code before opening another file or quitting.
+    unsaved_prompt: Option<AfterUnsaved>,
+    /// The user chose to quit without saving (or saved).
+    close_confirmed: bool,
     last_watch: Instant,
     status: Status,
     gpu_name: String,
@@ -145,6 +166,9 @@ impl ViewerApp {
             loading_stl: None,
             console: Vec::new(),
             show_console: true,
+            show_editor: true,
+            unsaved_prompt: None,
+            close_confirmed: false,
             last_watch: Instant::now(),
             status: Status::Info("Ready".into()),
             gpu_name,
@@ -159,49 +183,115 @@ impl ViewerApp {
 
     // ------------------------------------------------------------ opening
 
-    fn open(&mut self, path: PathBuf, ctx: &egui::Context) {
-        if let Some(prev) = &self.customizer {
-            prev.persist_into(&mut self.persisted_customizer);
-        }
-        if has_extension(&path, "scad") {
-            self.console.clear();
-            self.document = Some(Document::new(path.clone(), DocumentKind::Scad));
-            self.customizer = Some(CustomizerState::load_for_file(
-                &path,
-                &self.persisted_customizer,
-            ));
-            self.viewport.clear(&self.render_state.device);
-            self.evaluate(&path);
+    fn has_unsaved_code(&self) -> bool {
+        self.document
+            .as_ref()
+            .and_then(|d| d.editor.as_ref())
+            .is_some_and(Editor::is_dirty)
+    }
+
+    /// Opens a file, first asking about unsaved changes to the code.
+    fn request_open(&mut self, path: PathBuf, ctx: &egui::Context) {
+        if self.has_unsaved_code() {
+            self.unsaved_prompt = Some(AfterUnsaved::Open(path));
         } else {
-            self.start_stl_loading(path, ctx);
+            self.open(path, ctx);
         }
     }
 
-    fn evaluate(&mut self, path: &Path) {
+    fn open(&mut self, path: PathBuf, ctx: &egui::Context) {
+        if !has_extension(&path, "scad") {
+            self.start_stl_loading(path, ctx);
+            return;
+        }
+        let editor = match Editor::open(&path) {
+            Ok(editor) => editor,
+            Err(err) => {
+                self.status = Status::Error(format!("Cannot read '{}': {err}", path.display()));
+                return;
+            }
+        };
+        if let Some(prev) = &self.customizer {
+            prev.persist_into(&mut self.persisted_customizer);
+        }
+        self.console.clear();
+        self.customizer = Some(CustomizerState::load_for_file(
+            &path,
+            editor.text(),
+            &self.persisted_customizer,
+        ));
+        self.document = Some(Document::new(path, DocumentKind::Scad, Some(editor)));
+        self.viewport.clear(&self.render_state.device);
+        self.evaluate();
+    }
+
+    /// Evaluates the code in the editor (or the file, for a file that cannot
+    /// be edited) with the Customizer's values.
+    fn evaluate(&mut self) {
+        let Some(doc) = &mut self.document else {
+            return;
+        };
         let defines = self
             .customizer
             .as_ref()
             .map_or_else(Vec::new, CustomizerState::active_defines);
-        let generation = self.worker.submit(path.to_path_buf(), defines);
-        if let Some(doc) = &mut self.document {
-            doc.pending = Some(generation);
-        }
-        self.status = Status::Info(format!("Evaluating {}…", file_name(path)));
+        let (source, revision) = doc.editor.as_mut().map_or((None, 0), |editor| {
+            editor.clear_pending_change();
+            (editor.source(), editor.revision())
+        });
+        let generation = self
+            .worker
+            .submit(doc.path.clone(), source, revision, defines);
+        doc.pending = Some(generation);
+        self.status = Status::Info(format!("Evaluating {}…", file_name(&doc.path)));
     }
 
+    /// Re-reads the parameters from the code and evaluates it.
+    fn code_changed(&mut self) {
+        if let (Some(cust), Some(editor)) = (
+            &mut self.customizer,
+            self.document.as_ref().and_then(|d| d.editor.as_ref()),
+        ) {
+            cust.reload_from_source(editor.text());
+        }
+        self.evaluate();
+    }
+
+    /// F5: renders again, picking up changes on disk the editor has no
+    /// edits against.
     fn reload(&mut self, ctx: &egui::Context) {
-        let Some(doc) = &self.document else {
+        let Some(doc) = &mut self.document else {
             return;
         };
-        let path = doc.path.clone();
         match doc.kind {
             DocumentKind::Scad => {
-                if let Some(cust) = &mut self.customizer {
-                    cust.reload_from_disk();
+                if let Some(editor) = &mut doc.editor
+                    && !editor.is_dirty()
+                    && editor.disk_changed()
+                    && let Err(err) = editor.reload_from_disk()
+                {
+                    self.status = Status::Error(format!("Cannot read the file: {err}"));
                 }
-                self.evaluate(&path);
+                self.code_changed();
             }
-            DocumentKind::Stl => self.start_stl_loading(path, ctx),
+            DocumentKind::Stl => {
+                let path = doc.path.clone();
+                self.start_stl_loading(path, ctx);
+            }
+        }
+    }
+
+    fn save(&mut self) {
+        let Some(editor) = self.document.as_mut().and_then(|d| d.editor.as_mut()) else {
+            return;
+        };
+        let name = file_name(editor.path());
+        match editor.save() {
+            Ok(()) => {
+                self.code_changed();
+                self.status = Status::Info(format!("Saved {name}"));
+            }
+            Err(err) => self.status = Status::Error(format!("Cannot save {name}: {err}")),
         }
     }
 
@@ -248,7 +338,7 @@ impl ViewerApp {
                     }
                     self.customizer = None;
                     self.console.clear();
-                    self.document = Some(Document::new(path.clone(), DocumentKind::Stl));
+                    self.document = Some(Document::new(path.clone(), DocumentKind::Stl, None));
                 }
                 self.status = Status::Info(format!(
                     "Opened {} ({} triangles)",
@@ -294,6 +384,7 @@ impl ViewerApp {
         };
         doc.pending = None;
         doc.dependencies = result.dependencies;
+        doc.evaluated_revision = result.revision;
 
         let Some(output) = result.output else {
             // Keep showing the last good geometry while the file is fixed.
@@ -338,7 +429,7 @@ impl ViewerApp {
 
         let layers = layers_of(&output);
         self.show_geometry(&layers);
-        self.update_highlight();
+        self.update_highlight(false);
         if frame {
             self.viewport.fit();
         }
@@ -367,7 +458,7 @@ impl ViewerApp {
             .and_then(|mesh| mesh.raycast(ray.origin, ray.direction));
         let Some(hit) = hit else {
             if doc.selection.take().is_some() {
-                self.update_highlight();
+                self.update_highlight(false);
             }
             return;
         };
@@ -390,7 +481,7 @@ impl ViewerApp {
             link.location.describe()
         ));
         doc.selection = Some(selection);
-        self.update_highlight();
+        self.update_highlight(true);
     }
 
     fn handle_selection_event(&mut self, event: SelectionEvent) {
@@ -398,19 +489,23 @@ impl ViewerApp {
             return;
         };
         match event {
-            SelectionEvent::None => return,
+            SelectionEvent::None => {}
             SelectionEvent::Level(level) => {
                 if let Some(selection) = &mut doc.selection {
                     selection.level = level;
                 }
+                self.update_highlight(true);
             }
-            SelectionEvent::Clear => doc.selection = None,
+            SelectionEvent::Clear => {
+                doc.selection = None;
+                self.update_highlight(false);
+            }
         }
-        self.update_highlight();
     }
 
-    /// Sends the triangles of the selected code to the viewport.
-    fn update_highlight(&mut self) {
+    /// Sends the triangles of the selected code to the viewport, and shows
+    /// the code in the editor (with `reveal`, also moving the cursor there).
+    fn update_highlight(&mut self, reveal: bool) {
         let device = &self.render_state.device;
         let Some(doc) = &mut self.document else {
             self.viewport.set_selection(device, None);
@@ -425,6 +520,20 @@ impl ViewerApp {
             _ => None,
         };
         self.viewport.set_selection(device, highlight.as_ref());
+
+        // The code is shown in the editor when it is in the edited file and
+        // the text has not changed since it was evaluated.
+        let Some(editor) = &mut doc.editor else {
+            return;
+        };
+        let picked = doc
+            .selection
+            .as_ref()
+            .map(Selection::current)
+            .filter(|link| link.location.path == doc.path)
+            .filter(|_| doc.evaluated_revision == editor.revision())
+            .map(|link| link.source.start as usize..link.source.end as usize);
+        editor.show_picked(picked, reveal);
     }
 
     /// Re-evaluates when a watched file changed on disk.
@@ -433,17 +542,39 @@ impl ViewerApp {
             return;
         }
         self.last_watch = Instant::now();
-        let Some(doc) = &self.document else {
+        let Some(doc) = &mut self.document else {
             return;
         };
         if doc.pending.is_some() || self.loading_stl.is_some() {
             return;
         }
-        let changed = doc
+        // The edited file itself is the editor's business.
+        let main = doc.editor.as_ref().map(|e| e.path().to_path_buf());
+        let dependency_changed = doc
             .dependencies
             .iter()
+            .filter(|(path, _)| Some(path) != main.as_ref())
             .any(|(path, seen)| modified_time(path) != *seen);
-        if changed {
+        let mut code_changed = false;
+        if let Some(editor) = &mut doc.editor
+            && editor.disk_changed()
+        {
+            if editor.is_dirty() {
+                editor.set_conflict();
+            } else {
+                match editor.reload_from_disk() {
+                    Ok(()) => code_changed = true,
+                    Err(err) => {
+                        // Deleted or locked: keep the code and say so.
+                        editor.set_conflict();
+                        self.status = Status::Error(format!("Cannot read the file: {err}"));
+                    }
+                }
+            }
+        }
+        if code_changed {
+            self.code_changed();
+        } else if dependency_changed {
             self.reload(ctx);
         } else if let Some(cust) = &mut self.customizer {
             cust.refresh_presets_if_changed();
@@ -460,7 +591,7 @@ impl ViewerApp {
             .add_filter("STL", &["stl"])
             .pick_file();
         if let Some(path) = picked {
-            self.open(path, ctx);
+            self.request_open(path, ctx);
         }
     }
 
@@ -506,13 +637,16 @@ impl ViewerApp {
                 .find(|p| has_extension(p, "stl") || has_extension(p, "scad"))
         });
         if let Some(path) = dropped {
-            self.open(path, ctx);
+            self.request_open(path, ctx);
         }
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.input_mut(|i| i.consume_shortcut(&OPEN)) {
             self.open_dialog(ctx);
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&SAVE)) {
+            self.save();
         }
         if ctx.input_mut(|i| i.consume_shortcut(&EXPORT)) {
             self.export_dialog(StlFormat::Binary);
@@ -554,6 +688,14 @@ impl ViewerApp {
                     .clicked()
                 {
                     self.reload(ui.ctx());
+                }
+                let shortcut = ui.ctx().format_shortcut(&SAVE);
+                let can_save = self.has_unsaved_code();
+                if ui
+                    .add_enabled(can_save, egui::Button::new("Save").shortcut_text(shortcut))
+                    .clicked()
+                {
+                    self.save();
                 }
                 ui.separator();
                 let has_solid = self.document.as_ref().is_some_and(|d| d.solid.is_some());
@@ -613,6 +755,7 @@ impl ViewerApp {
                     self.viewport.set_style(style);
                 }
                 ui.separator();
+                ui.checkbox(&mut self.show_editor, "Editor");
                 ui.checkbox(&mut self.show_customizer, "Parameters");
                 ui.checkbox(&mut self.show_console, "Console");
             });
@@ -630,27 +773,44 @@ impl ViewerApp {
     fn handle_customizer_event(&mut self, event: CustomizerEvent) {
         match event {
             CustomizerEvent::None => {}
-            CustomizerEvent::Evaluate => {
-                if let Some(path) = self.document.as_ref().map(|d| d.path.clone()) {
-                    self.evaluate(&path);
-                }
-            }
-            CustomizerEvent::AppliedToFile { count, new_mtime } => {
-                if let Some(doc) = &mut self.document {
-                    for (path, seen) in &mut doc.dependencies {
-                        if *path == doc.path {
-                            *seen = new_mtime;
-                        }
+            CustomizerEvent::Evaluate => self.evaluate(),
+            CustomizerEvent::ApplyRequested => {
+                let event = match (
+                    &mut self.customizer,
+                    self.document.as_ref().and_then(|d| d.editor.as_ref()),
+                ) {
+                    (Some(cust), Some(editor)) if editor.is_editable() => {
+                        cust.apply_to_source(editor.text())
                     }
-                    // A change still inside the debounce window was not
-                    // rendered yet: render the file as it is now on disk.
-                    let path = doc.path.clone();
-                    self.evaluate(&path);
-                    self.status = Status::Info(format!(
-                        "Applied {count} parameter(s) to {}",
-                        file_name(&path)
-                    ));
-                }
+                    _ => CustomizerEvent::Status {
+                        is_error: true,
+                        message: "This file cannot be edited".into(),
+                    },
+                };
+                self.handle_customizer_event(event);
+            }
+            CustomizerEvent::Applied { count, text } => {
+                let Some(editor) = self.document.as_mut().and_then(|d| d.editor.as_mut()) else {
+                    return;
+                };
+                // Saved right away, as before the editor existed, unless the
+                // code has other unsaved edits: those are the user's to save.
+                let had_edits = editor.is_dirty();
+                editor.set_text(text);
+                let name = file_name(editor.path());
+                self.status = if had_edits {
+                    Status::Info(format!(
+                        "Applied {count} parameter(s) to the code of {name} (not saved yet)"
+                    ))
+                } else {
+                    match editor.save() {
+                        Ok(()) => Status::Info(format!("Applied {count} parameter(s) to {name}")),
+                        Err(err) => Status::Error(format!("Cannot save {name}: {err}")),
+                    }
+                };
+                // A change still inside the debounce window was not rendered
+                // yet: render the code as it is now.
+                self.evaluate();
             }
             CustomizerEvent::Status { is_error, message } => {
                 self.status = if is_error {
@@ -730,7 +890,8 @@ impl ViewerApp {
         ui.separator();
         if doc.kind == DocumentKind::Scad {
             ui.weak(
-                "Reloads automatically when you save the file (including from another editor).",
+                "The model follows the code as you type. Changes saved by another editor are \
+                 loaded automatically.",
             );
             ui.add_space(4.0);
         }
@@ -772,6 +933,81 @@ impl ViewerApp {
                     );
                 }
             });
+    }
+
+    fn editor_panel(&mut self, ui: &mut egui::Ui) {
+        let Some(editor) = self.document.as_mut().and_then(|d| d.editor.as_mut()) else {
+            return;
+        };
+        match editor.ui(ui) {
+            // Typing is evaluated once it pauses (see `take_due_change`).
+            EditorEvent::None | EditorEvent::Changed => {}
+            EditorEvent::Save => self.save(),
+            EditorEvent::Reloaded => self.code_changed(),
+        }
+    }
+
+    /// Asks whether to save the code before opening another file or quitting.
+    fn unsaved_prompt(&mut self, ctx: &egui::Context) {
+        let Some(after) = self.unsaved_prompt.clone() else {
+            return;
+        };
+        let name = self
+            .document
+            .as_ref()
+            .map_or_else(String::new, |d| file_name(&d.path));
+        let mut choice = None;
+        let mut cancel = false;
+        egui::Modal::new(egui::Id::unique("unsaved_changes")).show(ctx, |ui| {
+            ui.heading("Unsaved changes");
+            ui.add_space(4.0);
+            ui.label(format!("Save the changes to {name}?"));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    choice = Some(true);
+                }
+                if ui.button("Don't save").clicked() {
+                    choice = Some(false);
+                }
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    cancel = true;
+                }
+            });
+        });
+        if cancel {
+            self.unsaved_prompt = None;
+            return;
+        }
+        let Some(save) = choice else {
+            return;
+        };
+        self.unsaved_prompt = None;
+        if save {
+            self.save();
+            if self.has_unsaved_code() {
+                // Saving failed: the status bar says why.
+                return;
+            }
+        }
+        match after {
+            AfterUnsaved::Open(path) => self.open(path, ctx),
+            AfterUnsaved::Quit => {
+                self.close_confirmed = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    /// Closing the window with unsaved code asks first.
+    fn guard_close(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.close_confirmed
+            && self.has_unsaved_code()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.unsaved_prompt = Some(AfterUnsaved::Quit);
+        }
     }
 
     fn status_bar(&self, ui: &mut egui::Ui) {
@@ -834,14 +1070,22 @@ impl eframe::App for ViewerApp {
         self.watch_files(&ctx);
         self.handle_dropped_files(&ctx);
         self.handle_shortcuts(&ctx);
+        self.guard_close(&ctx);
 
         if self
             .customizer
             .as_mut()
             .is_some_and(CustomizerState::take_due_evaluation)
-            && let Some(path) = self.document.as_ref().map(|d| d.path.clone())
         {
-            self.evaluate(&path);
+            self.evaluate();
+        }
+        let typed = self
+            .document
+            .as_mut()
+            .and_then(|d| d.editor.as_mut())
+            .is_some_and(|e| e.take_due_change(editor::TYPING_DELAY));
+        if typed && self.settings.live_preview {
+            self.code_changed();
         }
 
         // With vsync on, this presents exactly once per monitor refresh.
@@ -849,11 +1093,16 @@ impl eframe::App for ViewerApp {
             ctx.request_repaint();
         } else {
             let mut next_wake = self.document.is_some().then_some(WATCH_INTERVAL);
-            if let Some(delay) = self
-                .customizer
-                .as_ref()
-                .and_then(CustomizerState::pending_repaint_delay)
-            {
+            let pending = [
+                self.customizer
+                    .as_ref()
+                    .and_then(CustomizerState::pending_repaint_delay),
+                self.document
+                    .as_ref()
+                    .and_then(|d| d.editor.as_ref())
+                    .and_then(|e| e.pending_delay(editor::TYPING_DELAY)),
+            ];
+            for delay in pending.into_iter().flatten() {
                 next_wake = Some(next_wake.map_or(delay, |w| w.min(delay)));
             }
             if let Some(delay) = next_wake {
@@ -871,6 +1120,7 @@ impl eframe::App for ViewerApp {
                 settings::settings_ui(ui, &mut self.settings);
             });
         self.settings_open = open;
+        self.unsaved_prompt(&ctx);
 
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
@@ -880,6 +1130,14 @@ impl eframe::App for ViewerApp {
                 .default_size(170.0)
                 .min_size(60.0)
                 .show(ui, |ui| self.console_panel(ui));
+        }
+        let has_editor = self.document.as_ref().is_some_and(|d| d.editor.is_some());
+        if self.show_editor && has_editor {
+            egui::Panel::left("editor")
+                .resizable(true)
+                .default_size(480.0)
+                .min_size(200.0)
+                .show(ui, |ui| self.editor_panel(ui));
         }
         egui::Panel::left("model")
             .default_size(260.0)

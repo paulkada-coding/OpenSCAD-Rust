@@ -3,6 +3,7 @@
 
 mod app;
 mod customizer;
+mod editor;
 mod selection;
 mod settings;
 mod worker;

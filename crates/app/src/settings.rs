@@ -25,11 +25,23 @@ pub enum PanelSide {
     Left,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub frame_rate: FrameRate,
     pub customizer_side: PanelSide,
+    /// Re-render the model while typing, without saving.
+    pub live_preview: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            frame_rate: FrameRate::default(),
+            customizer_side: PanelSide::default(),
+            live_preview: true,
+        }
+    }
 }
 
 impl Settings {
@@ -83,4 +95,15 @@ pub fn settings_ui(ui: &mut egui::Ui, settings: &mut Settings) {
         "Right (recommended)",
     );
     ui.radio_value(&mut settings.customizer_side, PanelSide::Left, "Left");
+
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(4.0);
+    ui.heading("Editor");
+    ui.add_space(4.0);
+    ui.checkbox(
+        &mut settings.live_preview,
+        "Update the model while typing (without saving)",
+    );
+    ui.weak("When off, the model is updated when you save (Ctrl+S) or press F5.");
 }

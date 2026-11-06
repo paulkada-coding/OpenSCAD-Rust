@@ -180,11 +180,19 @@ previous line. They must work perfectly.
   models make the brute-force raycast slow (it is linear in the triangle count, run only on
   click), hover preview, and "cursor on the line" once the editor exists (§3.2).
 
-### 3.2 Integrated editor
-- Editor panel with syntax highlighting based on our lexer (`scad-syntax`),
-  line numbers, underlined parse errors, Ctrl+S that saves and triggers a recompute.
-  Connect it to §3.1 (click on the model → cursor on the line). The engine must be able to evaluate the
-  text of the unsaved buffer (today the worker reads from disk).
+### 3.2 Integrated editor (done on 2026-11-06)
+- `crates/app/src/editor.rs`: egui `TextEdit` colored by the `scad-syntax` lexer, line numbers,
+  underlined parse errors (listed above the code, click to jump), Ctrl+S / Save, unsaved-changes
+  question before opening another file or quitting, "changed on disk" bar when the file changes
+  under unsaved edits. The worker evaluates the buffer (`Worker::submit(path, source, …)`), live
+  after a 300 ms typing pause (setting "Update the model while typing"). The Customizer reads
+  parameters from the buffer; "Apply to file" rewrites the buffer and saves it when it had no
+  other unsaved edits. Click on the model → the code is shown in blue in the editor and the
+  cursor moves there. The file's BOM and CRLF line endings are kept; non-UTF-8 files open
+  read-only.
+- Possible follow-ups: cursor in the editor → highlight on the model (reverse direction),
+  find/replace, editing included files, auto-indent and bracket matching, underlining
+  evaluation errors (today only parse errors).
 
 ### 3.3 3MF (and OBJ) export
 - 3MF is the format preferred by modern slicers (units in mm, multiple objects, colors). Writing

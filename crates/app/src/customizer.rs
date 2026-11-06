@@ -1,6 +1,7 @@
 //! Desktop Customizer panel: renders interactive controls from extracted
 //! `.scad` parameter annotations, manages `<stem>.json` presets, debounces
-//! live background re-evaluations, and writes modified values back to disk.
+//! live background re-evaluations, and writes modified values back into the
+//! code. Parameters come from the editor's text, not from the file on disk.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -10,7 +11,7 @@ use eframe::egui;
 use scad_customizer::{
     DEFAULT_GROUP, NumberOption, ParamConstraint, ParamValue, Parameter, PresetError, PresetFile,
     StringOption, VectorRange, extract_parameters, preset_path_for_scad, read_preset_file,
-    resolve_preset_overrides, write_file_atomic, write_preset_file,
+    resolve_preset_overrides, write_preset_file,
 };
 use serde::{Deserialize, Serialize};
 
@@ -54,10 +55,13 @@ pub enum CustomizerEvent {
     None,
     /// Trigger a background re-evaluation with [`CustomizerState::active_defines`].
     Evaluate,
-    /// Rewrote modified literals into the `.scad` file on disk.
-    AppliedToFile {
+    /// "Apply to file" was clicked: call [`CustomizerState::apply_to_source`]
+    /// with the current code.
+    ApplyRequested,
+    /// Modified literals were rewritten into the code.
+    Applied {
         count: usize,
-        new_mtime: Option<SystemTime>,
+        text: String,
     },
     /// Show an informational or error message in the status bar.
     Status {
@@ -91,15 +95,14 @@ pub struct CustomizerState {
 }
 
 impl CustomizerState {
-    /// Loads parameters and `<stem>.json` presets for `scad_path`, restoring
-    /// any saved per-file overrides from `persisted`.
-    pub fn load_for_file(scad_path: &Path, persisted: &PersistedCustomizer) -> Self {
+    /// Loads the parameters of `source` (the code of `scad_path`) and the
+    /// `<stem>.json` presets, restoring any saved per-file overrides from
+    /// `persisted`.
+    pub fn load_for_file(scad_path: &Path, source: &str, persisted: &PersistedCustomizer) -> Self {
         let preset_path = preset_path_for_scad(scad_path);
         let preset_mtime = modified_time(&preset_path);
         let (presets, preset_error) = load_presets(&preset_path);
-        let parameters = std::fs::read_to_string(scad_path)
-            .map(|src| extract_parameters(&src).parameters)
-            .unwrap_or_default();
+        let parameters = extract_parameters(source).parameters;
 
         let key = canonical_file_key(scad_path);
         let saved = persisted.files.get(&key);
@@ -142,17 +145,14 @@ impl CustomizerState {
         }
     }
 
-    /// Re-extracts parameters when the `.scad` (or companion `.json`) file
-    /// changes on disk, keeping modified values whose parameter still exists
-    /// with the same type. While the file has syntax errors the current
-    /// parameters are kept: error recovery may drop some of them, and their
-    /// modified values would be lost for good.
-    pub fn reload_from_disk(&mut self) {
+    /// Re-extracts parameters when the code (or the companion `.json` file)
+    /// changes, keeping modified values whose parameter still exists with the
+    /// same type. While the code has syntax errors the current parameters are
+    /// kept: error recovery may drop some of them, and their modified values
+    /// would be lost for good.
+    pub fn reload_from_source(&mut self, src: &str) {
         self.refresh_presets_if_changed();
-        let Ok(src) = std::fs::read_to_string(&self.scad_path) else {
-            return;
-        };
-        if !scad_syntax::parse(&src).errors().is_empty() {
+        if !scad_syntax::parse(src).errors().is_empty() {
             return;
         }
 
@@ -164,7 +164,7 @@ impl CustomizerState {
             .map(|(p, v)| (p.name.clone(), v.clone()))
             .collect();
 
-        self.parameters = extract_parameters(&src).parameters;
+        self.parameters = extract_parameters(src).parameters;
         self.values = self
             .parameters
             .iter()
@@ -281,11 +281,11 @@ impl CustomizerState {
                 if ui
                     .add_enabled(modified, egui::Button::new("Apply to file").small())
                     .on_hover_text(
-                        "Write modified parameter literals into the .scad file (preserving comments and formatting)",
+                        "Write the modified values into the code (preserving comments and formatting)",
                     )
                     .clicked()
                 {
-                    event = self.apply_to_file();
+                    event = CustomizerEvent::ApplyRequested;
                 }
                 if ui
                     .add_enabled(modified, egui::Button::new("↺ Reset").small())
@@ -842,43 +842,34 @@ impl CustomizerState {
         }
     }
 
-    fn apply_to_file(&mut self) -> CustomizerEvent {
+    /// Rewrites the modified values into `source`, the current code, and
+    /// returns the new code in [`CustomizerEvent::Applied`].
+    pub fn apply_to_source(&mut self, source: &str) -> CustomizerEvent {
         let updates = self.active_defines();
         if updates.is_empty() {
             return CustomizerEvent::None;
         }
-        let source = match std::fs::read_to_string(&self.scad_path) {
-            Ok(s) => s,
-            Err(err) => {
-                return CustomizerEvent::Status {
-                    is_error: true,
-                    message: format!("Cannot read '{}': {err}", self.scad_path.display()),
-                };
-            }
-        };
-        // The file may have changed since the parameters were extracted (the
-        // watcher polls): only rewrite assignments that are still the same
-        // literal, never an expression the user has just typed.
-        let on_disk = extract_parameters(&source).parameters;
+        // The code may have changed since the parameters were extracted
+        // (that waits for a pause in typing): only rewrite assignments that
+        // are still the same literal, never an expression just typed.
+        let current = extract_parameters(source).parameters;
         let unchanged = updates.iter().all(|(name, _)| {
             let ours = self.parameters.iter().find(|p| &p.name == name);
-            let theirs = on_disk.iter().find(|p| &p.name == name);
+            let theirs = current.iter().find(|p| &p.name == name);
             matches!((ours, theirs), (Some(a), Some(b)) if a.default.values_equal(&b.default))
         });
         if !unchanged {
-            self.reload_from_disk();
+            self.reload_from_source(source);
             return CustomizerEvent::Status {
                 is_error: true,
-                message:
-                    "The file changed on disk: parameters reloaded, check them and apply again"
-                        .into(),
+                message: "The code changed: parameters reloaded, check them and apply again".into(),
             };
         }
         let refs: Vec<(&str, &str)> = updates
             .iter()
             .map(|(name, lit)| (name.as_str(), lit.as_str()))
             .collect();
-        let rewritten = match scad_syntax::replace_assignment_values(&source, &refs) {
+        let rewritten = match scad_syntax::replace_assignment_values(source, &refs) {
             Ok(s) => s,
             Err(err) => {
                 return CustomizerEvent::Status {
@@ -887,19 +878,13 @@ impl CustomizerState {
                 };
             }
         };
-        if let Err(err) = write_file_atomic(&self.scad_path, rewritten.as_bytes()) {
-            return CustomizerEvent::Status {
-                is_error: true,
-                message: format!("Cannot write '{}': {err}", self.scad_path.display()),
-            };
-        }
         self.parameters = extract_parameters(&rewritten).parameters;
         self.values = self.parameters.iter().map(|p| p.default.clone()).collect();
         self.dirty_since = None;
         self.immediate_eval = false;
-        CustomizerEvent::AppliedToFile {
+        CustomizerEvent::Applied {
             count: updates.len(),
-            new_mtime: modified_time(&self.scad_path),
+            text: rewritten,
         }
     }
 
@@ -1076,19 +1061,18 @@ mod tests {
     }
 
     #[test]
-    fn reload_preserves_compatible_overrides_and_apply_rewrites_file() {
+    fn reload_preserves_compatible_overrides_and_apply_rewrites_code() {
         let dir = std::env::temp_dir().join(format!("app-customizer-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let scad_path = dir.join("box.scad");
-        std::fs::write(
-            &scad_path,
-            "width = 50; // [10:1:100]\nmode = \"a\"; // [a, b]\ncube(width);\n",
-        )
-        .unwrap();
+        let code = "width = 50; // [10:1:100]
+mode = \"a\"; // [a, b]
+cube(width);
+";
 
         let mut persisted = PersistedCustomizer::default();
-        let mut state = CustomizerState::load_for_file(&scad_path, &persisted);
+        let mut state = CustomizerState::load_for_file(&scad_path, code, &persisted);
         assert_eq!(state.active_defines(), Vec::<(String, String)>::new());
 
         // Simulate user editing `width` to 80 and `mode` to `"b"`.
@@ -1103,26 +1087,30 @@ mod tests {
             ]
         );
 
-        // External edit changes `mode` from string to boolean, while `width` stays numeric with tighter max 75.
-        std::fs::write(
-            &scad_path,
-            "width = 50; // [10:1:75]\nmode = true;\ncube(width);\n",
-        )
-        .unwrap();
-        state.reload_from_disk();
+        // An edit changes `mode` from string to boolean, while `width` stays
+        // numeric with a tighter max 75.
+        let code = "width = 50; // [10:1:75]
+mode = true;
+cube(width);
+";
+        state.reload_from_source(code);
         assert_eq!(state.active_defines(), vec![("width".into(), "75".into())]);
 
-        // Apply to file writes `75` into `box.scad` and clears active_defines.
-        match state.apply_to_file() {
-            CustomizerEvent::AppliedToFile { count, .. } => assert_eq!(count, 1),
+        // Apply writes `75` into the code and clears active_defines.
+        match state.apply_to_source(code) {
+            CustomizerEvent::Applied { count, text } => {
+                assert_eq!(count, 1);
+                assert_eq!(
+                    text,
+                    "width = 75; // [10:1:75]
+mode = true;
+cube(width);
+"
+                );
+            }
             other => panic!("unexpected event: {other:?}"),
         }
         assert!(!state.has_modifications());
-        let on_disk = std::fs::read_to_string(&scad_path).unwrap();
-        assert_eq!(
-            on_disk,
-            "width = 75; // [10:1:75]\nmode = true;\ncube(width);\n"
-        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1134,10 +1122,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let scad_path = dir.join("part.scad");
         let json_path = dir.join("part.json");
-        std::fs::write(&scad_path, "a = 1;\nb = 2;\ncube(a);\n").unwrap();
         std::fs::write(&json_path, "not json, maybe another tool's file").unwrap();
 
-        let mut state = CustomizerState::load_for_file(&scad_path, &PersistedCustomizer::default());
+        let mut state = CustomizerState::load_for_file(
+            &scad_path,
+            "a = 1;
+b = 2;
+cube(a);
+",
+            &PersistedCustomizer::default(),
+        );
         state.values[1] = ParamValue::Number(5.0);
 
         // An unreadable preset file is reported and never overwritten.
@@ -1151,21 +1145,25 @@ mod tests {
             "not json, maybe another tool's file"
         );
 
-        // While the file does not parse, parameters and values are kept.
-        std::fs::write(&scad_path, "a = \"oops;\nb = 2;\ncube(a);\n").unwrap();
-        state.reload_from_disk();
+        // While the code does not parse, parameters and values are kept.
+        state.reload_from_source(
+            "a = \"oops;
+b = 2;
+cube(a);
+",
+        );
         assert_eq!(state.active_defines(), vec![("b".into(), "5".into())]);
 
         // Apply never replaces an expression typed since the last reload.
-        std::fs::write(&scad_path, "a = 1;\nb = a * 2;\ncube(a);\n").unwrap();
         assert!(matches!(
-            state.apply_to_file(),
+            state.apply_to_source(
+                "a = 1;
+b = a * 2;
+cube(a);
+"
+            ),
             CustomizerEvent::Status { is_error: true, .. }
         ));
-        assert_eq!(
-            std::fs::read_to_string(&scad_path).unwrap(),
-            "a = 1;\nb = a * 2;\ncube(a);\n"
-        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
