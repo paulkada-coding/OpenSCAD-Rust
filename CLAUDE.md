@@ -236,8 +236,8 @@ Principles:
   app on Windows the same day; merged into `main` (fast-forward).
 - 2026-11-06: **cursor in the editor → model on branch `editor-cursor`**: moving the cursor
   selects the innermost code under it (`selection::Provenance::select_at`), shown in blue on the
-  model, in the editor and in the model panel. Verified: fmt/clippy/tests clean (new unit test);
-  to be tried by the user.
+  model, in the editor and in the model panel. Verified: fmt/clippy/tests clean (new unit test)
+  and by the user in the app on Windows; merged into `main` (fast-forward).
 
 ## Notes for the next milestones
 
