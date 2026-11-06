@@ -223,8 +223,10 @@ Principles:
     they carry no code.
   - Verified: fmt/clippy/tests clean, 218/218 text, 17/17 params, geometry unchanged (39/60/1);
     the app was driven under Xvfb with Mesa lavapipe on `porta_carte.scad` (selection, chain
-    levels, Customizer change keeping the selection, Esc, click beside the model). To be tried by
-    the user on Windows.
+    levels, Customizer change keeping the selection, Esc, click beside the model).
+- 2026-11-06: the user verified click → code on Windows; branch `claude/vibrant-rubin-sc5ljg`
+  (WebAssembly preparation + click → code) merged into `main` (fast-forward). Next suggested
+  step: integrated editor (next-steps §3.2).
 
 ## Notes for the next milestones
 
